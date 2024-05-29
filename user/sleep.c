@@ -10,6 +10,7 @@ int main(int argc ,char* argv[]){
   }
   else{
     n = atoi(argv[1]); //atoi将字符串转变为数字
+    //连接测试。。。
     sleep(n);
     exit(0);
   }
