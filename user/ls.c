@@ -47,14 +47,14 @@ ls(char *path)
     break;
 
   case T_DIR:
-    if(strlen(path) + 1 + DIRSIZ + 1 > sizeof buf){
+    if(strlen(path) + 1 + DIRSIZ + 1 > sizeof buf){ // 路径过长，sizeof(buf) 等价于 sizeof buf
       printf("ls: path too long\n");
       break;
     }
     strcpy(buf, path);
     p = buf+strlen(buf);
     *p++ = '/';
-    while(read(fd, &de, sizeof(de)) == sizeof(de)){
+    while(read(fd, &de, sizeof(de)) == sizeof(de)){ // 读取目录项
       if(de.inum == 0)
         continue;
       memmove(p, de.name, DIRSIZ);
