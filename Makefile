@@ -151,7 +151,8 @@ UPROGS=\
 	$U/_zombie\
 	$U/_sleep\
 	$U/_pingpong\
-
+	$U/_primes\
+	
 ifeq ($(LAB),syscall)
 UPROGS += \
 	$U/_trace\
