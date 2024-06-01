@@ -225,7 +225,7 @@ userinit(void)
   p->trapframe->epc = 0;      // user program counter
   p->trapframe->sp = PGSIZE;  // user stack pointer
 
-  safestrcpy(p->name, "initcode", sizeof(p->name));
+  safestrcpy(p->name, "initcode", sizeof(p->name)); //当前任务需要加载的程序名为initcode，即user/initcode.S，这个会创建一个init.c,以文件描述符0，1，2打开它，然后其在控制台上启动一个shell，系统就启动了，0代表标准输入，1代表标准输出，2代表标准错误输出。
   p->cwd = namei("/");
 
   p->state = RUNNABLE;
@@ -290,6 +290,10 @@ fork(void)
   np->cwd = idup(p->cwd);
 
   safestrcpy(np->name, p->name, sizeof(p->name));
+
+  //将trace_mask拷贝到子进程
+  np->trace_mask = p->trace_mask;
+  
 
   pid = np->pid;
 
