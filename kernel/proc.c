@@ -697,3 +697,22 @@ procdump(void)
     printf("\n");
   }
 }
+
+// 函数procnum统计当前系统中处于非 UNUSED 状态的进程数量。
+// 参数dst是一个指向uint64类型变量的指针，函数将统计结果存储在这个变量中。
+void
+procnum(uint64* dst){
+  // 初始化统计结果为0。
+  *dst = 0;
+  struct proc* p;
+  // 遍历proc数组，proc数组包含了系统中所有进程的信息。
+  // 不需要锁进程 proc 结构，因为我们只需要读取进程列表，不需要写
+  for(p = proc;p < &proc[NPROC];p++){
+    // 如果当前进程的状态不是UNUSED，即进程没有被废弃，
+    // 则将统计结果加1。
+    // 不是UNUSED，那么就是分配了
+    if(p->state != UNUSED){
+      (*dst)++;
+    }
+  }
+}

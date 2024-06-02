@@ -183,5 +183,13 @@ void            virtio_disk_init(void);
 void            virtio_disk_rw(struct buf *, int);
 void            virtio_disk_intr(void);
 
+
+//统计空闲内存和活动进程数
+void            freebytes(uint64* dst);
+void            procnum(uint64* dst);
+
 // number of elements in fixed-size array
 #define NELEM(x) (sizeof(x)/sizeof((x)[0]))
+
+
+

@@ -14,7 +14,8 @@ sub entry {
     print " ecall\n";
     print " ret\n";
 }
-	
+
+entry("sysinfo");
 entry("trace");
 entry("fork");
 entry("exit");
