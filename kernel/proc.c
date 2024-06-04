@@ -1,3 +1,4 @@
+//进程相关
 #include "types.h"
 #include "param.h"
 #include "memlayout.h"
@@ -22,25 +23,41 @@ static void freeproc(struct proc *p);
 extern char trampoline[]; // trampoline.S
 
 // initialize the proc table at boot time.
+// main中调用的procinit (*kernel/proc.c*:26)为每个进程分配一个内核栈。它将每个栈映射到KSTACK生成的虚拟地址，这为无效的栈保护页面留下了空间。
+//kvmmap将映射的PTE添加到内核页表中，对kvminithart的调用将内核页表重新加载到satp中，以便硬件知道新的PTE。
+
+// 初始化进程控制结构并为所有进程分配内核栈。
+// 此函数在系统启动时调用，以准备进程表和每个进程的内核栈。
 void
 procinit(void)
 {
+  // 为每个进程分配一个内核栈。
   struct proc *p;
-  
+
+  // 初始化进程ID锁，用于线程安全地管理下一个进程ID的分配。
   initlock(&pid_lock, "nextpid");
+  
+  // 遍历进程表，初始化每个进程的控制块。
   for(p = proc; p < &proc[NPROC]; p++) {
+      // 为每个进程的锁进行初始化，确保进程相关数据结构的并发访问安全。
       initlock(&p->lock, "proc");
 
-      // Allocate a page for the process's kernel stack.
-      // Map it high in memory, followed by an invalid
-      // guard page.
+      // 分配一页内存作为进程的内核栈。如果分配失败，触发系统恐慌，因为内核栈是必需的。
+       // 为每个进程分配一个内核栈,映射在内存的高处,每个内核栈下面紧接着一个gurad page,用于进行溢出检测 
       char *pa = kalloc();
       if(pa == 0)
-        panic("kalloc");
-      uint64 va = KSTACK((int) (p - proc));
-      kvmmap(va, (uint64)pa, PGSIZE, PTE_R | PTE_W);
+        panic("kalloc");  // 内存分配失败，系统无法继续运行。
+
+      // 计算进程内核栈的虚拟地址，并将其映射到分配的物理页上，后面跟着一个无效的守护页面。
+      uint64 va = KSTACK((int) (p - proc));  // 计算特定于该进程的内核栈地址
+      // 建立内核栈虚拟地址空间和上面分配的物理地址空间的映射关系
+      kvmmap(va, (uint64)pa, PGSIZE, PTE_R | PTE_W);  // 映射内存并设置权限
+
+      // 将内核栈的虚拟地址保存到进程结构中，以便后续使用。
       p->kstack = va;
   }
+  
+  // 初始化当前处理器的内核虚拟内存环境，设置stap寄存器，然后刷新tlb
   kvminithart();
 }
 
@@ -160,6 +177,7 @@ proc_pagetable(struct proc *p)
   pagetable_t pagetable;
 
   // An empty page table.
+  // 创建一个新的空页表
   pagetable = uvmcreate();
   if(pagetable == 0)
     return 0;
@@ -168,6 +186,8 @@ proc_pagetable(struct proc *p)
   // at the highest user virtual address.
   // only the supervisor uses it, on the way
   // to/from user space, so not PTE_U.
+   // 将trampoline code代码映射到用户程序虚拟地址空间顶部-->进行用户态和内核态之间的切换
+  // trampoline code只能在s态下访问，未设置PTE_U标志（用户访问权限）。
   if(mappages(pagetable, TRAMPOLINE, PGSIZE,
               (uint64)trampoline, PTE_R | PTE_X) < 0){
     uvmfree(pagetable, 0);
@@ -175,23 +195,30 @@ proc_pagetable(struct proc *p)
   }
 
   // map the trapframe just below TRAMPOLINE, for trampoline.S.
+  // 将当前进程的trapframe映射到trampoline下面,方便在trampoline执行上下文保存与恢复过程中进行访问
+  // 在跳板下方映射进程的陷阱帧。
+  // 陷阱帧保存了中断或异常发生时处理器的寄存器内容，
+  // 并被trampoline.S用于恢复上下文。
   if(mappages(pagetable, TRAPFRAME, PGSIZE,
               (uint64)(p->trapframe), PTE_R | PTE_W) < 0){
     uvmunmap(pagetable, TRAMPOLINE, 1, 0);
     uvmfree(pagetable, 0);
     return 0;
   }
-
+ // 成功创建并映射后，返回页表指针。
   return pagetable;
 }
 
 // Free a process's page table, and free the
 // physical memory it refers to.
 void
+//传入的sz是旧的虚拟地址空间中，使用的内存当前使用到的最高位置
 proc_freepagetable(pagetable_t pagetable, uint64 sz)
 {
+  //TRAMPOLINE和TRAPFRAME这两个代码页对应的物理页是所有进程共享,所以解除当前进程旧页表与之映射时，实际物理页不释放
   uvmunmap(pagetable, TRAMPOLINE, 1, 0);
   uvmunmap(pagetable, TRAPFRAME, 1, 0);
+  //释放0~sz这段虚拟地址空间的映射
   uvmfree(pagetable, sz);
 }
 
@@ -239,19 +266,25 @@ int
 growproc(int n)
 {
   uint sz;
+  //获取当前进程的结构体
   struct proc *p = myproc();
-
+  // 获取当前进程堆顶位置
   sz = p->sz;
+  // 扩大内存
   if(n > 0){
+    // 分配内存,返回新的堆顶位置---返回的是对齐后的新堆顶地址
     if((sz = uvmalloc(p->pagetable, sz, sz + n)) == 0) {
       return -1;
     }
   } else if(n < 0){
+   // 缩小内存,返回新的堆定位置---返回的是对齐后的新堆顶地址
     sz = uvmdealloc(p->pagetable, sz, sz + n);
   }
+  //更新当前进程堆顶位置
   p->sz = sz;
   return 0;
 }
+
 
 // Create a new process, copying the parent.
 // Sets up child kernel stack to return as if from fork() system call.

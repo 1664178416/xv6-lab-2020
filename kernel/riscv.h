@@ -1,3 +1,4 @@
+// RISC-V 架构相关的底层操作的实现
 // which hart (core) is this?
 static inline uint64
 r_mhartid()
@@ -182,8 +183,12 @@ w_mtvec(uint64 x)
 }
 
 // use riscv's sv39 page table scheme.
-#define SATP_SV39 (8L << 60)
+// 使用riscv的sv39页表方案。39位虚拟地址，48位物理地址；8L是satp寄存器的SXL位，表示页表的位数
+#define SATP_SV39 (8L << 60) //将数字8左移60位用来定义SV39分页模式
+//SV39 分页模式是 RISC-V 架构中的一种虚拟内存分页模式，它支持最多 39 位的虚拟地址空间，可以映射到最多 56 位的物理地址空间。
 
+// 将页表的物理地址转换为satp寄存器的值
+//(((uint64)pagetable) >> 12)设置开启基于SV39的分页机制
 #define MAKE_SATP(pagetable) (SATP_SV39 | (((uint64)pagetable) >> 12))
 
 // supervisor address translation and protection;
@@ -310,7 +315,7 @@ r_ra()
   asm volatile("mv %0, ra" : "=r" (x) );
   return x;
 }
-
+//  RISC-V有一个指令sfence.vma，用于刷新当前CPU的TLB。
 // flush the TLB.
 static inline void
 sfence_vma()
@@ -320,24 +325,28 @@ sfence_vma()
 }
 
 
-#define PGSIZE 4096 // bytes per page
-#define PGSHIFT 12  // bits of offset within a page
+#define PGSIZE 4096 // bytes per page，每个页面大小为4096字节
+#define PGSHIFT 12  // bits of offset within a page，用12位表示偏移，即一个页面有2^12=4096个字节
 
+
+//向上取整找到最接近它的页面边界上
 #define PGROUNDUP(sz)  (((sz)+PGSIZE-1) & ~(PGSIZE-1))
+//向下取整找到最接近它的页面边界上
 #define PGROUNDDOWN(a) (((a)) & ~(PGSIZE-1))
 
-#define PTE_V (1L << 0) // valid
-#define PTE_R (1L << 1)
-#define PTE_W (1L << 2)
-#define PTE_X (1L << 3)
-#define PTE_U (1L << 4) // 1 -> user can access
+#define PTE_V (1L << 0) // valid  // 指示PTE是否存在：如果它没有被设置，对页面的引用会导致异常（即不允许）。
+#define PTE_R (1L << 1) //控制是否允许指令读取到页面。
+#define PTE_W (1L << 2) //控制是否允许指令写入到页面。
+#define PTE_X (1L << 3) //控制CPU是否可以将页面内容解释为指令并执行它们。
+#define PTE_U (1L << 4) // 1 -> user can access控制用户模式下的指令是否被允许访问页面；
+//如果没有设置PTE_U，PTE只能在管理模式下使用。
 
 // shift a physical address to the right place for a PTE.
-#define PA2PTE(pa) ((((uint64)pa) >> 12) << 10)
+#define PA2PTE(pa) ((((uint64)pa) >> 12) << 10)  // 将物理地址右移12位，然后左移10位，即将物理地址的低12位作为PTE的索引
 
-#define PTE2PA(pte) (((pte) >> 10) << 12)
+#define PTE2PA(pte) (((pte) >> 10) << 12)   // 将PTE右移10位，然后左移12位，即将PTE的索引左移12位，得到物理地址
 
-#define PTE_FLAGS(pte) ((pte) & 0x3FF)
+#define PTE_FLAGS(pte) ((pte) & 0x3FF)     // 取PTE的低10位，即PTE的标志位
 
 // extract the three 9-bit page table indices from a virtual address.
 #define PXMASK          0x1FF // 9 bits
@@ -348,7 +357,10 @@ sfence_vma()
 // MAXVA is actually one bit less than the max allowed by
 // Sv39, to avoid having to sign-extend virtual addresses
 // that have the high bit set.
+// 表示在使用39位虚拟地址空间（Sv39）的系统中，最大的可寻址虚拟地址。
 #define MAXVA (1L << (9 + 9 + 9 + 12 - 1))
 
-typedef uint64 pte_t;
-typedef uint64 *pagetable_t; // 512 PTEs
+
+//在mappages函数中使用，
+typedef uint64 pte_t; //页表是由多个pte_t组成的数组，每个pte_t是一个64位的无符号整数
+typedef uint64 *pagetable_t; // 512 PTEs  //指向uint64类型的指针，即指向一个页表，每个页表大小为512页面
