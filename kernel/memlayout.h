@@ -1,3 +1,4 @@
+//内存分布相关和重要的内存地址定义
 // Physical memory layout
 
 // qemu -machine virt is set up like this,
@@ -18,8 +19,8 @@
 // PHYSTOP -- end RAM used by the kernel
 
 // qemu puts UART registers here in physical memory.
-#define UART0 0x10000000L
-#define UART0_IRQ 10
+#define UART0 0x10000000L // 串口的物理地址,UART寄存器作用是负责与Console和显示器交互。
+#define UART0_IRQ 10  //
 
 // virtio mmio interface
 #define VIRTIO0 0x10001000
@@ -45,14 +46,19 @@
 // for use by the kernel and user pages
 // from physical address 0x80000000 to PHYSTOP.
 #define KERNBASE 0x80000000L
-#define PHYSTOP (KERNBASE + 128*1024*1024)
+#define PHYSTOP (KERNBASE + 128*1024*1024)  //整个物理内存大小为128M
 
 // map the trampoline page to the highest address,
 // in both user and kernel space.
+//程序跳板的地址      
+// 将"跳板页"（trampoline page）映射到最高地址，包括用户空间和内核空间。
+//"跳板页"通常用于实现一些特殊的操作或跳转，例如在用户态和内核态之间进行切换时。
+//TRAMPOLINE 这个名字通常用于表示一个跳板页的地址。跳板页是一种特殊的页面，它位于用户空间和内核空间的边界，用于在用户空间和内核空间之间进行切换。
 #define TRAMPOLINE (MAXVA - PGSIZE)
 
 // map kernel stacks beneath the trampoline,
 // each surrounded by invalid guard pages.
+// 将内核栈映射到"跳板页"下方，每个内核栈周围都有无效的保护页面 --- p代表是第几个进程的内核栈,按顺序往下映射
 #define KSTACK(p) (TRAMPOLINE - ((p)+1)* 2*PGSIZE)
 
 // User memory layout.

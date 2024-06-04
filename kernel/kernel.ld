@@ -6,6 +6,7 @@ SECTIONS
   /*
    * ensure that entry.S / _entry is at 0x80000000,
    * where qemu's -kernel jumps.
+   * 设置内核text代码段的物理地址
    */
   . = 0x80000000;
 

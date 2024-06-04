@@ -39,15 +39,20 @@ sys_wait(void)
   return wait(p);
 }
 
+//sbrk是一个用于进程减少或增长其内存的系统调用:
+// sys_sbrk系统调用通过C中的一个包装函数brk来访问
+// 该函数接受一个参数，指定要增加或减少程序数据段的内存量。作为返回值，它提供一个指向新分配内存起始位置的指针  
 uint64
 sys_sbrk(void)
 {
   int addr;
   int n;
-
+  //从a0系统调用参数寄存器中取出参数值 
   if(argint(0, &n) < 0)
     return -1;
+  // 返回一个指向新分配内存起始位置的指针 -- 当前进程堆顶位置
   addr = myproc()->sz;
+  // 增加内存
   if(growproc(n) < 0)
     return -1;
   return addr;
