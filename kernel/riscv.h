@@ -344,7 +344,7 @@ sfence_vma()
 // shift a physical address to the right place for a PTE.
 #define PA2PTE(pa) ((((uint64)pa) >> 12) << 10)  // 将物理地址右移12位，然后左移10位，即将物理地址的低12位作为PTE的索引
 
-#define PTE2PA(pte) (((pte) >> 10) << 12)   // 将PTE右移10位，然后左移12位，即将PTE的索引左移12位，得到物理地址
+#define PTE2PA(pte) (((pte) >> 10) << 12)   // 将PTE右移10位，然后左移12位，右移10位将标志位去掉，然后将PTE的索引左移12位，得到该页表的基地址，即物理地址
 
 #define PTE_FLAGS(pte) ((pte) & 0x3FF)     // 取PTE的低10位，即PTE的标志位
 

@@ -435,6 +435,7 @@ freewalk(pagetable_t pagetable)
   for(int i = 0; i < 512; i++){
     pte_t pte = pagetable[i];
     //满足下面条件,说明还没有递归到叶子层
+    //(pte & (PTE_R|PTE_W|PTE_X)) == 0则是用来判断是否不在最后一层。因为最后一层页表中页表项中W位，R位，X位起码有一位会被设置为1
     if((pte & PTE_V) && (pte & (PTE_R|PTE_W|PTE_X)) == 0){
       // this PTE points to a lower-level page table.
       uint64 child = PTE2PA(pte);
