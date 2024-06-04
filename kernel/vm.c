@@ -289,6 +289,33 @@ freewalk(pagetable_t pagetable)
   kfree((void*)pagetable);
 }
 
+//仿照freewalk进行打印的编写
+void _vmprint(pagetable_t pagetable,int level){
+  for(int i = 0; i < 512; i++){
+    pte_t pte = pagetable[i];
+    if(pte&PTE_V) { //如果页表有效
+      printf("..");
+      for(int j = 0;j < level;j++){
+        printf(" ..");
+      }
+      printf("%d: pte %p pa %p\n",i,pte,PTE2PA(pte));
+
+      //如果该节点不是叶子节点，递归打印其子节点
+      if((pte & (PTE_R|PTE_W|PTE_X)) == 0){
+        uint64 child = PTE2PA(pte);
+        _vmprint((pagetable_t)child,level+1);
+      }
+    }
+  }
+}
+
+int vmprint(pagetable_t pagetable){
+  printf("page table %p\n",pagetable);
+  _vmprint(pagetable,0);
+  return 0;
+}
+
+
 // Free user memory pages,
 // then free page-table pages.
 void
