@@ -90,7 +90,7 @@ kalloc(void)
   struct run *r;
 
   acquire(&kmem.lock);
-  r = kmem.freelist;
+  r = kmem.freelist; // 获取空闲列表的根节点
   if(r)
     kmem.freelist = r->next;
   release(&kmem.lock);
@@ -98,4 +98,30 @@ kalloc(void)
   if(r)
     memset((char*)r, 5, PGSIZE); // fill with junk
   return (void*)r;
+}
+
+// freebytes 函数用于计算并更新系统中空闲内存的总字节数。
+// 它接受一个 uint64 类型的指针 dst，该指针将被用于存储计算得到的空闲字节数。
+// 该函数不返回任何值。
+void
+freebytes(uint64 *dst){
+  // 将 dst 指向的内存区域清零，表示初始空闲字节数为0。
+  *dst = 0;
+  
+  // 获取内存管理结构 kmem 的空闲列表指针。
+  struct run *p =kmem.freelist; 
+  // 加锁以保护对 kmem 结构的访问，确保并发安全。
+  acquire(&kmem.lock); 
+  
+  // 遍历空闲列表中的每个内存块，累加它们的大小到 dst。
+  while(p){
+    // 累加每个内存块的大小（PGSIZE）到 dst。
+    // 统计空闲页数，每次累加上页大小 PGSIZE ，就是空闲的字节数
+    *dst += PGSIZE;
+    // 移动到下一个内存块。
+    p = p->next;
+  }
+  
+  // 遍历完成后，释放对 kmem 结构的锁。
+  release(&kmem.lock);
 }

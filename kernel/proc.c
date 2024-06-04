@@ -252,7 +252,7 @@ userinit(void)
   p->trapframe->epc = 0;      // user program counter
   p->trapframe->sp = PGSIZE;  // user stack pointer
 
-  safestrcpy(p->name, "initcode", sizeof(p->name));
+  safestrcpy(p->name, "initcode", sizeof(p->name)); //当前任务需要加载的程序名为initcode，即user/initcode.S，这个会创建一个init.c,以文件描述符0，1，2打开它，然后其在控制台上启动一个shell，系统就启动了，0代表标准输入，1代表标准输出，2代表标准错误输出。
   p->cwd = namei("/");
 
   p->state = RUNNABLE;
@@ -323,6 +323,10 @@ fork(void)
   np->cwd = idup(p->cwd);
 
   safestrcpy(np->name, p->name, sizeof(p->name));
+
+  //将trace_mask拷贝到子进程
+  np->trace_mask = p->trace_mask;
+  
 
   pid = np->pid;
 
@@ -516,14 +520,10 @@ scheduler(void)
       }
       release(&p->lock);
     }
-#if !defined (LAB_FS)
     if(found == 0) {
       intr_on();
       asm volatile("wfi");
     }
-#else
-    ;
-#endif
   }
 }
 
@@ -728,5 +728,24 @@ procdump(void)
       state = "???";
     printf("%d %s %s", p->pid, state, p->name);
     printf("\n");
+  }
+}
+
+// 函数procnum统计当前系统中处于非 UNUSED 状态的进程数量。
+// 参数dst是一个指向uint64类型变量的指针，函数将统计结果存储在这个变量中。
+void
+procnum(uint64* dst){
+  // 初始化统计结果为0。
+  *dst = 0;
+  struct proc* p;
+  // 遍历proc数组，proc数组包含了系统中所有进程的信息。
+  // 不需要锁进程 proc 结构，因为我们只需要读取进程列表，不需要写
+  for(p = proc;p < &proc[NPROC];p++){
+    // 如果当前进程的状态不是UNUSED，即进程没有被废弃，
+    // 则将统计结果加1。
+    // 不是UNUSED，那么就是分配了
+    if(p->state != UNUSED){
+      (*dst)++;
+    }
   }
 }

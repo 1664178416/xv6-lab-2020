@@ -10,7 +10,7 @@ volatile static int started = 0;
 void
 main()
 {
-  if(cpuid() == 0){
+  if(cpuid() == 0){ //只有第一个核执行相关设备的初始化工作
     consoleinit();
 #if defined(LAB_PGTBL) || defined(LAB_LOCK)
     statsinit();
@@ -31,11 +31,7 @@ main()
     iinit();         // inode cache
     fileinit();      // file table
     virtio_disk_init(); // emulated hard disk
-#ifdef LAB_NET
-    pci_init();
-    sockinit();
-#endif    
-    userinit();      // first user process
+    userinit();      // first user process ，初始化一些设备和子系统后，通过userinit创建第一个用户进程(kernel/proc.c:212)，第一个进程执行一个用RISC-V程序集写的小程序，initcode. S (user/initcode.S:1)，它通过调用exec系统调用重新进入内核。
     __sync_synchronize();
     started = 1;
   } else {
@@ -48,5 +44,5 @@ main()
     plicinithart();   // ask PLIC for device interrupts
   }
 
-  scheduler();        
+  scheduler();      //切换到第一个任务执行  
 }
