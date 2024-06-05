@@ -106,44 +106,59 @@ allocpid() {
 // If found, initialize state required to run in the kernel,
 // and return with p->lock held.
 // If there are no free procs, or a memory allocation fails, return 0.
+// 分配进程结构体
+// 在进程表中搜索未使用的进程结构体，初始化后返回。
+// 如果找不到未使用的进程结构体，则返回0。
 static struct proc*
 allocproc(void)
 {
   struct proc *p;
 
+  // 遍历进程表以寻找未使用的进程结构体。
   for(p = proc; p < &proc[NPROC]; p++) {
+    // 获取进程结构体的锁以确保线程安全。
     acquire(&p->lock);
+    // 如果进程结构体未使用，准备初始化。
     if(p->state == UNUSED) {
-      goto found;
+      goto found;  // 跳转到初始化部分
     } else {
+      // 如果进程结构体正在使用，释放锁并继续搜索。
       release(&p->lock);
     }
   }
+  // 若未找到未使用的进程结构体，返回0。
   return 0;
 
-found:
+found:  // 初始化进程信息
+  // 分配并设置新进程ID。
   p->pid = allocpid();
 
-  // Allocate a trapframe page.
+  // 为陷阱帧分配一个页面。
+  // 分配陷阱帧页面。
   if((p->trapframe = (struct trapframe *)kalloc()) == 0){
+    // 如果分配失败，释放锁并返回0。
     release(&p->lock);
     return 0;
   }
 
-  // An empty user page table.
+  // 为进程分配一个空的用户页表。
+  // 为空用户页表分配。
   p->pagetable = proc_pagetable(p);
   if(p->pagetable == 0){
+    // 如果分配失败，释放进程结构体并释放锁，然后返回0。
     freeproc(p);
     release(&p->lock);
     return 0;
   }
 
-  // Set up new context to start executing at forkret,
-  // which returns to user space.
-  memset(&p->context, 0, sizeof(p->context));
-  p->context.ra = (uint64)forkret;
-  p->context.sp = p->kstack + PGSIZE;
+  // 设置新上下文，以便在forkret处开始执行，并最终返回用户空间。
+  // 初始化新上下文以在forkret开始执行，
+  // 随后返回用户空间。
+  memset(&p->context, 0, sizeof(p->context));  // 清零上下文
+  p->context.ra = (uint64)forkret;  // 设置返回地址
+  p->context.sp = p->kstack + PGSIZE;  // 设置堆栈指针
 
+  // 返回已初始化的进程结构体。
   return p;
 }
 
