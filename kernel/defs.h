@@ -182,6 +182,7 @@ int             vmprint(pagetable_t pagetable);
 
 void            uvmmap(pagetable_t pagetable,uint64 va,uint64 pa,uint64 sz,int perm);
 pagetable_t     proc_kpt_init();
+void            proc_inithart(pagetable_t pagetable);
 
 // plic.c
 void            plicinit(void);

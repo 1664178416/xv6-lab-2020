@@ -22,25 +22,40 @@ static void freeproc(struct proc *p);
 extern char trampoline[]; // trampoline.S
 
 // initialize the proc table at boot time.
+//确保每一个进程的内核页表都关于该进程的内核栈有一个映射。在未修改的XV6中，所有的内核栈都在procinit中设置。你将要把这个功能部分或全部的迁移到allocproc中
+// 初始化进程表及相关资源
 void
 procinit(void)
 {
   struct proc *p;
   
+  // 初始化用于管理下一个进程ID的锁，确保线程安全。
   initlock(&pid_lock, "nextpid");
+  
+  // 遍历进程表，为每个进程结构体初始化锁
   for(p = proc; p < &proc[NPROC]; p++) {
+      // 为每个进程初始化锁，保护其数据结构免受并发访问影响。
       initlock(&p->lock, "proc");
-
-      // Allocate a page for the process's kernel stack.
-      // Map it high in memory, followed by an invalid
-      // guard page.
-      char *pa = kalloc();
-      if(pa == 0)
-        panic("kalloc");
-      uint64 va = KSTACK((int) (p - proc));
-      kvmmap(va, (uint64)pa, PGSIZE, PTE_R | PTE_W);
-      p->kstack = va;
+      //在每个进程的生命周期内，经常会通过系统调用(SYSCALL)或者中断进入内核。在执行系统调用后，这些内核代码所使用的栈并不是原先用户空间的栈，而是一个内核空间的栈，这个栈被称作进程的“内核栈”。
+      //进程的内核栈是操作系统为每个进程在内核空间分配的一段私有内存区域，专门用于在内核模式下执行代码时存储函数调用的局部变量、函数参数以及控制信息。
+      // 为进程的内核栈分配一页内存。
+      // 高地址处映射该页物理内存，并跟随一个无效的保护页。
+      //这一部分代码注释，因为现在每个进程的内核栈有自身的内核页表进行维护，而不需要将每个进程的内核栈映射到全局内核页表中
+      // char *pa = kalloc();
+      // // 若内存分配失败，则触发panic终止系统，因为内核栈对进程运行至关重要。
+      // if(pa == 0)
+      //   panic("kalloc");
+      
+      // // 计算内核栈的虚拟地址，并将分配的物理内存映射到此地址。
+      // // 虚拟地址依据进程在进程表中的位置计算得出。
+      // uint64 va = KSTACK((int) (p - proc));
+      // kvmmap(va, (uint64)pa, PGSIZE, PTE_R | PTE_W);
+      
+      // // 在进程结构体中记录内核栈的虚拟地址，以便后续使用。
+      // p->kstack = va;
   }
+  
+  // 为当前CPU核心初始化内核虚拟内存环境。
   kvminithart();
 }
 
@@ -89,45 +104,95 @@ allocpid() {
 // If found, initialize state required to run in the kernel,
 // and return with p->lock held.
 // If there are no free procs, or a memory allocation fails, return 0.
+// 分配进程结构体
+// 在进程表中搜索未使用的进程结构体，初始化后返回。
+// 如果找不到未使用的进程结构体，则返回0。
 static struct proc*
 allocproc(void)
 {
   struct proc *p;
 
+  // 遍历进程表以寻找未使用的进程结构体。
   for(p = proc; p < &proc[NPROC]; p++) {
+    // 获取进程结构体的锁以确保线程安全。
     acquire(&p->lock);
+    // 如果进程结构体未使用，准备初始化。
     if(p->state == UNUSED) {
-      goto found;
+      goto found;  // 跳转到初始化部分
     } else {
+      // 如果进程结构体正在使用，释放锁并继续搜索。
       release(&p->lock);
     }
   }
+  // 若未找到未使用的进程结构体，返回0。
   return 0;
 
-found:
+found:  // 初始化进程信息
+  // 分配并设置新进程ID。
   p->pid = allocpid();
 
-  // Allocate a trapframe page.
+  // 为陷阱帧分配一个页面。
+  // 分配陷阱帧页面。
   if((p->trapframe = (struct trapframe *)kalloc()) == 0){
+    // 如果分配失败，释放锁并返回0。
     release(&p->lock);
     return 0;
   }
 
-  // An empty user page table.
+  // 为进程分配一个空的用户页表。
+  // 为空用户页表分配。
   p->pagetable = proc_pagetable(p);
   if(p->pagetable == 0){
+    // 如果分配失败，释放进程结构体并释放锁，然后返回0。
     freeproc(p);
     release(&p->lock);
     return 0;
   }
 
-  // Set up new context to start executing at forkret,
-  // which returns to user space.
-  memset(&p->context, 0, sizeof(p->context));
-  p->context.ra = (uint64)forkret;
-  p->context.sp = p->kstack + PGSIZE;
+  //补充
+  //为进程分配一个空的内核页表
+  p->kernalpt = proc_kpt_init(p);
+  if(p->kernalpt == 0){
+    freeproc(p);
+    release(&p->lock);
+    return 0;
+  }
+  //根据提示，为了确保每一个进程的内核页表都关于该进程的内核栈有一个映射。我们需要将procinit方法中相关的代码迁移到allocproc方法中
+  
+  char* pa = kalloc();
+  if(pa == 0)
+    panic("kalloc");
+  uint64 va = KSTACK((int)(p-proc));
+  //当前进程的内核栈映射到当前进程的自己内核页表中
+  uvmmap(p->kernalpt, va, (uint64)pa, PGSIZE, PTE_R | PTE_W);
+  p->kstack = va;
 
+  // 设置新上下文，以便在forkret处开始执行，并最终返回用户空间。
+  // 初始化新上下文以在forkret开始执行，
+  // 随后返回用户空间。
+  memset(&p->context, 0, sizeof(p->context));  // 清零上下文
+  p->context.ra = (uint64)forkret;  // 设置返回地址
+  p->context.sp = p->kstack + PGSIZE;  // 设置堆栈指针
+
+  // 返回已初始化的进程结构体。
   return p;
+}
+
+// 释放进程自身的内核页表
+//历遍整个内核页表，然后将所有有效的页表项清空为零,最后清除页表的物理地址,就跟vm.c中freewalk一样
+void
+proc_freekernelpt(pagetable_t kernelpt){
+  for(int i = 0; i < 512;i++){
+    pte_t pte = kernelpt[i];
+    if(pte & PTE_V){//有效
+      kernelpt[i] = 0;
+      if((pte & (PTE_R|PTE_W|PTE_X)) == 0 ){ //不是叶子节点
+        uint64 child = PTE2PA(pte);
+        proc_freekernelpt((pagetable_t)child);
+      }
+    }
+  }
+  kfree((void*)kernelpt);
 }
 
 // free a proc structure and the data hanging from it,
@@ -149,6 +214,17 @@ freeproc(struct proc *p)
   p->chan = 0;
   p->killed = 0;
   p->xstate = 0;
+
+  //释放进程独立内核页表，及内核栈映射
+
+  //最后一个参数为1时会释放物理内存，即释放内核栈映射的物理内存
+  uvmunmap(p->kernalpt,p->kstack,1,1);
+  p->kstack = 0;
+  
+  //递归释放进程独立内核页表的物理空间，但不能释放页表指向的物理地址，那是全局共享的
+  if(p->kernalpt){
+    proc_freekernelpt(p->kernalpt);
+  }
   p->state = UNUSED;
 }
 
@@ -453,42 +529,62 @@ wait(uint64 addr)
 //  - swtch to start running that process.
 //  - eventually that process transfers control
 //    via swtch back to the scheduler.
+// 调度器函数实现了任务调度算法。
+// 它从进程表中选择一个可运行的进程并切换到该进程上。
 void
 scheduler(void)
 {
   struct proc *p;
+  // 获取当前CPU结构体
   struct cpu *c = mycpu();
   
+  // 清除CPU上的当前进程信息
   c->proc = 0;
   for(;;){
-    // Avoid deadlock by ensuring that devices can interrupt.
+    // 启用中断以允许设备驱动程序自行调度
+    // 通过确保设备可以中断来避免死锁。
     intr_on();
     
+    // 查找可运行的进程
     int found = 0;
     for(p = proc; p < &proc[NPROC]; p++) {
+      // 获取进程结构体的锁以确保线程安全
       acquire(&p->lock);
+      // 如果进程状态为可运行(RUNNABLE)
       if(p->state == RUNNABLE) {
-        // Switch to chosen process.  It is the process's job
-        // to release its lock and then reacquire it
-        // before jumping back to us.
+        // 将进程状态设置为正在运行(RUNNING)
+        // 切换到选中的进程。进程本身需要负责
+        // 在回到调度器前释放并重新获取其锁。
         p->state = RUNNING;
+        // 更新当前CPU上正在运行的进程信息
         c->proc = p;
+        // 执行上下文切换到该进程
+        //swtch() 函数是用于实现上下文切换的关键操作。在这个上下文，它将当前CPU的执行环境（上下文）保存到c->context，这个上下文包含了CPU寄存器的状态，如通用寄存器、程序计数器等。然后，它将切换到进程p的上下文（&p->context），这代表了进程p的执行环境。这样，CPU的执行环境就从当前CPU切换到了进程p，进程p就可以继续执行了。
+        //切换到进程独立的内核页表
+        proc_inithart(p->kernalpt);
         swtch(&c->context, &p->context);
 
-        // Process is done running for now.
-        // It should have changed its p->state before coming back.
+        //切换回全局内核页表
+        kvminithart();
+        // 上下文切换后，清除当前进程信息
+        // 当前进程已完成本次运行。
+        // 进程在返回之前应已更改其p->state。
         c->proc = 0;
 
+        // 标记已找到一个可运行的进程
         found = 1;
       }
+      // 释放进程结构体的锁
       release(&p->lock);
     }
+    // 如果没有找到可运行的进程，则进入等待中断的状态
 #if !defined (LAB_FS)
     if(found == 0) {
       intr_on();
-      asm volatile("wfi");
+      asm volatile("wfi"); // 等待中断指令
     }
 #else
+    // 在某些特定实验环境下可能无需执行此部分
     ;
 #endif
   }

@@ -311,7 +311,7 @@ r_ra()
   return x;
 }
 
-// flush the TLB.
+// flush the TLB.刷新快表
 static inline void
 sfence_vma()
 {

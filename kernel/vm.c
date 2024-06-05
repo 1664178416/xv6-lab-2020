@@ -5,6 +5,8 @@
 #include "riscv.h"
 #include "defs.h"
 #include "fs.h"
+#include "spinlock.h"
+#include "proc.h"
 
 /*
  * the kernel's page table.
@@ -86,10 +88,26 @@ kvminit()
 
 // Switch h/w page table register to the kernel's page table,
 // and enable paging.
+/**
+ * 初始化处理器的页表
+ * 
+ * 本函数的目的是在处理器启动初期，设置虚拟地址到物理地址的映射关系，使用的是内核页表。
+ * 这是通过修改系统地址转换寄存器（SATP）的值来实现的。修改SATP后，还需要确保处理器
+ * 的缓存和内存中的数据视图一致，因此跟着一条内存屏障指令sfence_vma。
+*/
 void
 kvminithart()
 {
+  // 设置SATP寄存器，使用内核页表
   w_satp(MAKE_SATP(kernel_pagetable));
+  
+  // 确保内存和缓存中的数据视图一致
+  sfence_vma();
+}
+
+void 
+proc_inithart(pagetable_t pagetable){
+  w_satp(MAKE_SATP(pagetable));
   sfence_vma();
 }
 
@@ -167,7 +185,7 @@ kvmmap(uint64 va, uint64 pa, uint64 sz, int perm)
 // assumes va is page aligned.
 /*
  * 函数名称：kvmpa
- * 函数功能：将虚拟地址转换为物理地址
+ * 函数功能：将虚拟地址转换为物理地址(只针对全局内核页表进行)
  * 参数说明：
  *   va：需要转换的虚拟地址
  * 返回值：
@@ -190,7 +208,7 @@ kvmpa(uint64 va)
   uint64 pa;
   
   /* 查询给定虚拟地址在内核页表中的页表项 */
-  pte = walk(kernel_pagetable, va, 0);
+  pte = walk(myproc()->kernalpt, va, 0); //拿到当前进程的内核页表，并查询物理地址
   /* 如果页表项不存在，则调用panic */
   if(pte == 0)
     panic("kvmpa");
