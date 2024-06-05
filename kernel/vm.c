@@ -18,34 +18,71 @@ extern char trampoline[]; // trampoline.S
 /*
  * create a direct-map page table for the kernel.
  */
+
+void uvmmap(pagetable_t pagetable,uint64 va,uint64 pa,uint64 sz,int perm){
+  //和kvmmap区别就在于mappages传入的pagetable不是固定的kernel_pagetable
+  if(mappages(pagetable,va,sz,pa,perm) != 0)
+    panic("uvmmap");
+}
+
+//此处可以参照下面的kvminit()函数，将I/O设备映射到用户空间的进程内核页表中
+pagetable_t
+proc_kpt_init(){
+  pagetable_t kernelpt = uvmcreate();
+  if (kernelpt == 0) return 0;
+  uvmmap(kernelpt, UART0, UART0, PGSIZE, PTE_R | PTE_W);
+  uvmmap(kernelpt, VIRTIO0, VIRTIO0, PGSIZE, PTE_R | PTE_W);
+  uvmmap(kernelpt, CLINT, CLINT, 0x10000, PTE_R | PTE_W);
+  uvmmap(kernelpt, PLIC, PLIC, 0x400000, PTE_R | PTE_W);
+  uvmmap(kernelpt, KERNBASE, KERNBASE, (uint64)etext-KERNBASE, PTE_R | PTE_X);
+  uvmmap(kernelpt, (uint64)etext, (uint64)etext, PHYSTOP-(uint64)etext, PTE_R | PTE_W);
+  uvmmap(kernelpt, TRAMPOLINE, (uint64)trampoline, PGSIZE, PTE_R | PTE_X);
+  return kernelpt;
+}
+
 void
 kvminit()
 {
+  //为最高一级page directory分配物理page （调用 kalloc就是分配物理page)
   kernel_pagetable = (pagetable_t) kalloc();
+  //将这段你内存初始化为0
   memset(kernel_pagetable, 0, PGSIZE);
 
+  //通过kvmmap函数将每个I/O设备映射到内核
+  //映射UART0设备，允许读写访问
+  //UART寄存器
   // uart registers
   kvmmap(UART0, UART0, PGSIZE, PTE_R | PTE_W);
-
+  
+  //映射virtio0设备，用于访问虚拟磁盘，拥有读写权限
+  //virtio 内存映射磁盘接口
   // virtio mmio disk interface
   kvmmap(VIRTIO0, VIRTIO0, PGSIZE, PTE_R | PTE_W);
-
+   // 映射 CLINT（集群互连计时器）设备，用于定时中断和核心间同步。
   // CLINT
   kvmmap(CLINT, CLINT, 0x10000, PTE_R | PTE_W);
 
+  // 映射 PLIC（外部中断控制器）设备，用于处理外部中断。
   // PLIC
   kvmmap(PLIC, PLIC, 0x400000, PTE_R | PTE_W);
 
+  // 映射内核代码段（从KERNBASE到etext），设置为可执行和只读
+  //KERNBASE 是内核虚拟地址空间的起始地址，而 etext 是内核可执行代码段的结束地址。
+  //通过调用 kvmmap 函数，它将内核的代码部分映射到虚拟地址空间，赋予该区域读和执行的权限（PTE_R | PTE_X）。
+  //这意味着内核的指令部分可以被安全地执行，但不允许修改，这样的设置是为了保证内核的稳定性和安全性，防止运行时意外修改代码段。
   // map kernel text executable and read-only.
   kvmmap(KERNBASE, KERNBASE, (uint64)etext-KERNBASE, PTE_R | PTE_X);
 
+  // 映射内核数据段及内核所使用的内存（从etext到PHYSTOP），设置为可读写
   // map kernel data and the physical RAM we'll make use of.
   kvmmap((uint64)etext, (uint64)etext, PHYSTOP-(uint64)etext, PTE_R | PTE_W);
 
+  //映射跳板代码，用于陷阱入口/退出，即用于在内核和用户模式之间切换，放于内核中的最高虚拟地址处
   // map the trampoline for trap entry/exit to
   // the highest virtual address in the kernel.
   kvmmap(TRAMPOLINE, (uint64)trampoline, PGSIZE, PTE_R | PTE_X);
 }
+
 
 // Switch h/w page table register to the kernel's page table,
 // and enable paging.
@@ -114,9 +151,12 @@ walkaddr(pagetable_t pagetable, uint64 va)
 // add a mapping to the kernel page table.
 // only used when booting.
 // does not flush TLB or enable paging.
+//该函数只在启动阶段使用，用于向内核页表中添加映射条目，不会刷新TLB（快表）或启用分页。
 void
+//四个参数：虚拟地址、物理地址、大小、读写权限
 kvmmap(uint64 va, uint64 pa, uint64 sz, int perm)
 {
+  //mappages函数负责完成具体映射条目的建立工作
   if(mappages(kernel_pagetable, va, sz, pa, perm) != 0)
     panic("kvmmap");
 }
@@ -125,22 +165,43 @@ kvmmap(uint64 va, uint64 pa, uint64 sz, int perm)
 // a physical address. only needed for
 // addresses on the stack.
 // assumes va is page aligned.
+/*
+ * 函数名称：kvmpa
+ * 函数功能：将虚拟地址转换为物理地址
+ * 参数说明：
+ *   va：需要转换的虚拟地址
+ * 返回值：
+ *   转换后的物理地址
+ * 
+ * 函数实现的详细说明：
+ * 1. 计算虚拟地址的页内偏移量。
+ * 2. 通过页表查询给定虚拟地址对应的页表项。
+ * 3. 如果页表项不存在，则调用panic，表示系统出现了严重错误。
+ * 4. 如果页表项存在但未被激活（未映射到物理页面），则同样调用panic，表示虚拟地址无效。
+ * 5. 从有效的页表项中提取出物理地址。
+ * 6. 将物理地址与虚拟地址的页内偏移量相加，得到最终的物理地址。
+ */
 uint64
 kvmpa(uint64 va)
 {
+  /* 计算虚拟地址的页内偏移量 */
   uint64 off = va % PGSIZE;
   pte_t *pte;
   uint64 pa;
   
+  /* 查询给定虚拟地址在内核页表中的页表项 */
   pte = walk(kernel_pagetable, va, 0);
+  /* 如果页表项不存在，则调用panic */
   if(pte == 0)
     panic("kvmpa");
+  /* 如果页表项存在但未被激活，则同样调用panic */
   if((*pte & PTE_V) == 0)
     panic("kvmpa");
+  /* 从有效的页表项中提取出物理地址 */
   pa = PTE2PA(*pte);
+  /* 返回物理地址与页内偏移量相加的结果 */
   return pa+off;
 }
-
 // Create PTEs for virtual addresses starting at va that refer to
 // physical addresses starting at pa. va and size might not
 // be page-aligned. Returns 0 on success, -1 if walk() couldn't
