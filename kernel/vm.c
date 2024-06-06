@@ -34,7 +34,10 @@ proc_kpt_init(){
   if (kernelpt == 0) return 0;
   uvmmap(kernelpt, UART0, UART0, PGSIZE, PTE_R | PTE_W);
   uvmmap(kernelpt, VIRTIO0, VIRTIO0, PGSIZE, PTE_R | PTE_W);
-  uvmmap(kernelpt, CLINT, CLINT, 0x10000, PTE_R | PTE_W);
+  //查阅 xv6 book 可以看到，在 PLIC 之前还有一个 CLINT（核心本地中断器）的映射
+  //该映射会与我们要 map 的程序内存冲突。查阅 xv6 book 的 Chapter 5 以及 start.c 可以知道 CLINT 仅在内核启动的时候需要使用到，而用户进程在内核态中的操作并不需要使用到该映射。
+  //所以修改进程的内核页表映射，将 CLINT 的映射去掉。
+  //uvmmap(kernelpt, CLINT, CLINT, 0x10000, PTE_R | PTE_W);
   uvmmap(kernelpt, PLIC, PLIC, 0x400000, PTE_R | PTE_W);
   uvmmap(kernelpt, KERNBASE, KERNBASE, (uint64)etext-KERNBASE, PTE_R | PTE_X);
   uvmmap(kernelpt, (uint64)etext, (uint64)etext, PHYSTOP-(uint64)etext, PTE_R | PTE_W);
