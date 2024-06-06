@@ -100,7 +100,13 @@ sys_uptime(void)
 
 //lab4-3
 uint64 sys_sigreturn(void){
-  return 0;
+  if(myproc()->trapframecopy != myproc()->trapframe + 512)return -1;
+  memmove(myproc()->trapframe,myproc()->trapframecopy,sizeof(struct trapframe));
+  //myproc()->is_alarming = 0;
+  myproc()->trapframecopy = 0;
+  myproc()->passedticks = 0;
+  return myproc()->trapframe->a0;	// 返回a0,避免被返回值覆盖
+  //return 0;,好像return 0也行
 }
 
 //lab4-3

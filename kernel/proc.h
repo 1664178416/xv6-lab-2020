@@ -106,4 +106,6 @@ struct proc {
   int interval;                //时间间隔 -lab4-3
   uint64 handler;              //调用函数地址  lab4-3
   int passedticks;             //经过的时钟数  lab4-3
+  struct trapframe* trapframecopy; //在系统调用时用户代码中断时会将寄存器记录到 p->trapframe 中, 而前者由于在 usertrap() 覆盖了 p->trapframe->epc, 才能够执行定时函数, 执行完后又会导致一些寄存器的值被修改. 因此, 考虑在 struct proc 中保存一个 trapframe 的副本, 在覆盖 epc 之前先保存副本, 然后在 sys_sigreturn() 中将副本还原到 p->trapframe 中, 从而在 sigreturn 系统调用结束后恢复用户寄存器状态时能够将执行定时函数前的寄存器状态进行恢复.
+  //int is_alarming;                //是否为正在进行handler函数  lab4-3 
 };
