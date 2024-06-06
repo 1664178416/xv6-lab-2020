@@ -69,6 +69,9 @@ exec(char *path, char **argv)
     uint64 sz1;
     if((sz1 = uvmalloc(pagetable, sz, ph.vaddr + ph.memsz)) == 0)
       goto bad;
+    if(sz1 >= PLIC) { // 添加检测，防止程序大小超过 PLIC
+      goto bad;
+    }
      // 段被加载后,sz可用内存空间指针上移 
     sz = sz1;
     // 如果当前段在程序头中设置的虚地址不对齐,那么也是错误的行为
@@ -102,6 +105,9 @@ exec(char *path, char **argv)
   sp = sz;
   //栈基地址
   stackbase = sp - PGSIZE;
+
+  //添加复制逻辑
+  u2kvmcopy(pagetable,p->kernalpt,0,sz);
 
   // Push argument strings, prepare rest of stack in ustack.
   // 将传递给当前程序的参数都推入上面分配的用户栈中
