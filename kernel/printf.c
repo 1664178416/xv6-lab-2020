@@ -121,6 +121,7 @@ panic(char *s)
   printf("panic: ");
   printf(s);
   printf("\n");
+  backtrace();
   panicked = 1; // freeze uart output from other CPUs
   for(;;)
     ;
@@ -131,4 +132,14 @@ printfinit(void)
 {
   initlock(&pr.lock, "pr");
   pr.locking = 1;
+}
+
+//强制类型转换的对象要么为 (uint64 *)(fp-8) 和 (uint64 *)(fp-16), 因为 8 和 16 的单位是字节; 或者为 (uint64 *) fp - 1 和 (uint64 *) fp - 2, 因为此时 1 和 2 是以 (uint64*) 指针大小(8 字节)为单位的.
+void backtrace(){
+  uint64 fp = r_fp(); //获取当前栈帧指针
+  uint64 top = PGROUNDUP(fp); //获取用户栈最高空间
+  uint64 bottom = PGROUNDDOWN(fp); //获取用户栈最低空间
+  for(;fp >= bottom && fp < top; fp = *(uint64*)(fp-16)){//遍历栈帧
+    printf("%p\n",*(uint64*)(fp-8)); //输出当前栈返回地址
+  }
 }

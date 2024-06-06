@@ -31,10 +31,24 @@ fetchstr(uint64 addr, char *buf, int max)
   return strlen(buf);
 }
 
+/**
+ * 获取进程的原始参数值
+ * 
+ * 该函数用于获取当前进程的第n个参数的原始值。这些参数在进程调用系统调用或中断处理程序时保存在陷阱帧（Trap Frame）中。
+ * 参数n指示要获取的参数的位置，从0开始计数。
+ * 
+ * @param n 参数的位置，取值范围为0到5。
+ * @return 返回第n个参数的原始值。
+ * 
+ * 注意：如果n超出有效范围（0到5），函数将触发panic，因为这表示代码存在错误，需要立即停止执行。
+ */
 static uint64
 argraw(int n)
 {
+  // 获取当前进程的结构体指针
   struct proc *p = myproc();
+  
+  // 根据参数n的位置，返回对应参数的原始值
   switch (n) {
   case 0:
     return p->trapframe->a0;
@@ -49,15 +63,27 @@ argraw(int n)
   case 5:
     return p->trapframe->a5;
   }
+  
+  // 如果n超出预期范围，表示存在编程错误，触发panic
   panic("argraw");
-  return -1;
+  return -1; // 永远不会到达这里，因为panic会中断执行
 }
 
 // Fetch the nth 32-bit system call argument.
+/**
+ * 函数argint的目的是从命令行参数中解析出一个整数。
+ * 
+ * @param n 指定要解析的参数的索引。
+ * @param ip 一个指针，函数将解析出的整数存储在这个指针所指向的位置。
+ * 
+ * @return 函数始终返回0，表示解析操作成功或不适用。
+ */
 int
 argint(int n, int *ip)
 {
+  /* 调用argraw函数来获取命令行参数n对应的原始值，并通过ip指针将这个值存储到内存中 */
   *ip = argraw(n);
+  /* 解析成功，返回0 */
   return 0;
 }
 
@@ -104,6 +130,8 @@ extern uint64 sys_unlink(void);
 extern uint64 sys_wait(void);
 extern uint64 sys_write(void);
 extern uint64 sys_uptime(void);
+extern uint64 sys_sigalarm(void);  //lab4-3
+extern uint64 sys_sigreturn(void);  //lab4-3
 
 static uint64 (*syscalls[])(void) = {
 [SYS_fork]    sys_fork,
@@ -127,6 +155,8 @@ static uint64 (*syscalls[])(void) = {
 [SYS_link]    sys_link,
 [SYS_mkdir]   sys_mkdir,
 [SYS_close]   sys_close,
+[SYS_sigalarm] sys_sigalarm,  //lab4-3
+[SYS_sigreturn] sys_sigreturn,  //lab4-3
 };
 
 void

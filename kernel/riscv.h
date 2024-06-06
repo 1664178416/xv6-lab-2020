@@ -319,6 +319,24 @@ sfence_vma()
   asm volatile("sfence.vma zero, zero");
 }
 
+/**
+ * 获取寄存器s0的值
+ * 
+ * 该内联函数用于从寄存器s0中获取值，并将其作为64位无符号整数返回。
+ * 使用汇编指令直接访问寄存器，是为了确保获取的是s0寄存器的当前值，
+ * 而不是可能被C代码上下文修改的值。
+ * 
+ * 返回寄存器s0的值，作为64位无符号整数。
+ */
+static inline uint64
+r_fp()
+{
+  uint64 x;
+  // 直接从寄存器s0中读取值，并存储到变量x中
+  asm volatile("mv %0, s0" : "=r" (x) );
+  return x;
+}
+
 
 #define PGSIZE 4096 // bytes per page
 #define PGSHIFT 12  // bits of offset within a page

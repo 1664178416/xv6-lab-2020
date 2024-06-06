@@ -76,9 +76,17 @@ usertrap(void)
   if(p->killed)
     exit(-1);
 
+  //lab4-3  时钟中断部分
   // give up the CPU if this is a timer interrupt.
-  if(which_dev == 2)
+  if(which_dev == 2){
+    if(p->interval != 0 && ++p->passedticks == p->interval){
+      p->passedticks = 0;//重新计时
+      //将异常程序计数器（EPC）设置为处理程序的地址。这意味着当控制权返回到用户空间时，处理程序（handler）将被执行
+      p->trapframe->epc = p->handler;   // execute handler() when return to user space 
+    }
     yield();
+  }
+
 
   usertrapret();
 }
