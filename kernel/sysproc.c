@@ -104,7 +104,7 @@ uint64 sys_sigreturn(void){
   memmove(myproc()->trapframe,myproc()->trapframecopy,sizeof(struct trapframe));
   //myproc()->is_alarming = 0;
   myproc()->trapframecopy = 0;
-  myproc()->passedticks = 0;
+  myproc()->passedticks = 0; //在这里计0表示handler已经执行完毕，可以重新计时
   return myproc()->trapframe->a0;	// 返回a0,避免被返回值覆盖
   //return 0;,好像return 0也行
 }

@@ -83,7 +83,7 @@ usertrap(void)
       p->trapframecopy = p->trapframe + 512;
       memmove(p->trapframecopy,p->trapframe,sizeof(struct trapframe));
       p->trapframe->epc = p->handler;   // execute handler() when return to user space 
-      // p->passedticks = 0;//重新计时
+      // p->passedticks = 0;//重新计时，不能在这置零，否则会导致handler（）还没执行完时重入，导致handler（）被打断
       // //将异常程序计数器（EPC）设置为处理程序的地址。这意味着当控制权返回到用户空间时，处理程序（handler）将被执行
       
       // p->is_alarming = 1;
