@@ -402,21 +402,33 @@ copyin(pagetable_t pagetable, char *dst, uint64 srcva, uint64 len)
 // Copy bytes to dst from virtual address srcva in a given page table,
 // until a '\0', or max.
 // Return 0 on success, -1 on error.
+//copyinstr（kernel/vm.c:406）从用户页表中的虚拟地址srcva复制max字节到dst。
+//它使用walkaddr（它又调用walk）在软件中遍历页表，以确定srcva的物理地址pa0。
+// 由于内核将所有物理RAM地址映射到同一个内核虚拟地址，
+// copyinstr可以直接将字符串字节从pa0复制到dst。
+// walkaddr（kernel/vm.c:95）检查用户提供的虚拟地址是否为进程用户地址空间的一部分，因此程序不能欺骗内核读取其他内存。
+// 一个类似的函数copyout，将数据从内核复制到用户提供的地址。
+
 int
+// 从用户空间传过来的虚拟地址srcva处拷贝字符串,直到遇到'\0'结束符号,或者拷贝字符超过max限制
+// copy带有'\0'结束符号的字符串
 copyinstr(pagetable_t pagetable, char *dst, uint64 srcva, uint64 max)
 {
   uint64 n, va0, pa0;
   int got_null = 0;
 
   while(got_null == 0 && max > 0){
+    //用户态下的虚拟地址进行向下对齐
     va0 = PGROUNDDOWN(srcva);
+    //遍历用户态页表,将传入的用户态虚拟地址翻译为物理地址
     pa0 = walkaddr(pagetable, va0);
     if(pa0 == 0)
       return -1;
     n = PGSIZE - (srcva - va0);
     if(n > max)
       n = max;
-
+    // 整体实现思路和 copyin 一致
+    //不同之处在于,由于事先不清楚copy数据的长度,只能一个个字节的copy，边copy边判断是否到达字符串末尾
     char *p = (char *) (pa0 + (srcva - va0));
     while(n > 0){
       if(*p == '\0'){
@@ -424,6 +436,8 @@ copyinstr(pagetable_t pagetable, char *dst, uint64 srcva, uint64 max)
         got_null = 1;
         break;
       } else {
+        // 由于内核态下采用的是等价映射,所以才可以直接这样玩
+        //毕竟dst代表内核态的虚拟地址，而p代表物理地址
         *dst = *p;
       }
       --n;
@@ -431,7 +445,6 @@ copyinstr(pagetable_t pagetable, char *dst, uint64 srcva, uint64 max)
       p++;
       dst++;
     }
-
     srcva = va0 + PGSIZE;
   }
   if(got_null){
