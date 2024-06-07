@@ -48,7 +48,7 @@ struct trapframe {
   /*  24 */ uint64 epc;           // saved user program counter
   /*  32 */ uint64 kernel_hartid; // saved kernel tp
   /*  40 */ uint64 ra;
-  /*  48 */ uint64 sp;
+  /*  48 */ uint64 sp;            // sp，指向用户栈顶
   /*  56 */ uint64 gp;
   /*  64 */ uint64 tp;
   /*  72 */ uint64 t0;
@@ -96,7 +96,7 @@ struct proc {
 
   // these are private to the process, so p->lock need not be held.
   uint64 kstack;               // Virtual address of kernel stack
-  uint64 sz;                   // Size of process memory (bytes)
+  uint64 sz;                   // Size of process memory (bytes)，进程内存大小
   pagetable_t pagetable;       // User page table
   struct trapframe *trapframe; // data page for trampoline.S
   struct context context;      // swtch() here to run process

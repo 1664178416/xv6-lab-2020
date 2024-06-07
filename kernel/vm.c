@@ -170,26 +170,48 @@ mappages(pagetable_t pagetable, uint64 va, uint64 size, uint64 pa, int perm)
 // Remove npages of mappings starting from va. va must be
 // page-aligned. The mappings must exist.
 // Optionally free the physical memory.
+/**
+ * 从页表中删除指定的虚拟内存页面。
+ * 
+ * @param pagetable 页表，用于映射虚拟地址到物理地址。
+ * @param va 要删除的虚拟地址的起始位置。
+ * @param npages 要删除的虚拟页面数量。
+ * @param do_free 如果为真，则物理页面在删除后会被释放。
+ */
+//注意lab5懒分配的时候这里也要改，因为lazy allocation中首先并未实际分配内存，所以当解除映射关系的时候对于这部分内存要略过，而不是使系统崩溃，这部分在课程视频中已经解答。
 void
 uvmunmap(pagetable_t pagetable, uint64 va, uint64 npages, int do_free)
 {
   uint64 a;
   pte_t *pte;
 
+  // 确保虚拟地址对齐，否则 panic。
   if((va % PGSIZE) != 0)
     panic("uvmunmap: not aligned");
 
+  // 遍历每个虚拟页面，进行删除操作。
   for(a = va; a < va + npages*PGSIZE; a += PGSIZE){
+    // 获取当前虚拟地址对应的页表项，失败则 panic。
     if((pte = walk(pagetable, a, 0)) == 0)
-      panic("uvmunmap: walk");
+      continue;
+      //panic("uvmunmap: walk");
+
+    // 如果页表项未被标记为有效，则 panic。
     if((*pte & PTE_V) == 0)
-      panic("uvmunmap: not mapped");
+      continue;  //lab5-2
+      //panic("uvmunmap: not mapped");
+
+    // 如果页表项不是叶子项，则 panic。
     if(PTE_FLAGS(*pte) == PTE_V)
       panic("uvmunmap: not a leaf");
+
+    // 如果需要释放物理页面，则进行释放操作。
     if(do_free){
       uint64 pa = PTE2PA(*pte);
       kfree((void*)pa);
     }
+
+    // 清除页表项，取消虚拟地址到物理地址的映射。
     *pte = 0;
   }
 }
@@ -315,9 +337,11 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
 
   for(i = 0; i < sz; i += PGSIZE){
     if((pte = walk(old, i, 0)) == 0)
-      panic("uvmcopy: pte should exist");
+      continue;
+      //panic("uvmcopy: pte should exist");
     if((*pte & PTE_V) == 0)
-      panic("uvmcopy: page not present");
+      continue;
+      //panic("uvmcopy: page not present");
     pa = PTE2PA(*pte);
     flags = PTE_FLAGS(*pte);
     if((mem = kalloc()) == 0)

@@ -47,8 +47,20 @@ sys_sbrk(void)
   if(argint(0, &n) < 0)
     return -1;
   addr = myproc()->sz;
-  if(growproc(n) < 0)
+  uint64 sz = myproc()->sz; 
+
+  if(n > 0){
+    myproc()->sz += n;  //lab5-1
+  }
+  else if(sz + n > 0){
+    sz = uvmdealloc(myproc()->pagetable,sz,sz+n);
+    myproc()->sz = sz;
+  }else{
     return -1;
+  }
+  //将此处关闭掉 lab5-1，不进行实际内存分配
+  // if(growproc(n) < 0)
+  //   return -1;
   return addr;
 }
 
