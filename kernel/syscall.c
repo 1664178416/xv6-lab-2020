@@ -25,11 +25,20 @@ int
 fetchstr(uint64 addr, char *buf, int max)
 {
   struct proc *p = myproc();
+  //  负责用户态虚地址转换,并将数据从用户态缓冲区拷贝到内核态中来
   int err = copyinstr(p->pagetable, buf, addr, max);
   if(err < 0)
     return err;
   return strlen(buf);
 }
+//函数artint、artaddr和artfd从陷阱框架中检索第n个系统调用参数并以整数、指针或文件描述符的形式保存。他们都调用argraw来检索相应的保存的用户寄存器
+//不过，有些系统调用传递指针作为参数，内核必须使用这些指针来读取或写入用户内存。
+
+// 例如：exec系统调用传递给内核一个指向用户空间中字符串参数的指针数组。
+// 这些指针带来了两个挑战。
+// 首先，用户程序可能有缺陷或恶意，可能会传递给内核一个无效的指针，或者一个旨在欺骗内核访问内核内存而不是用户内存的指针。
+// 其次，xv6内核页表映射与用户页表映射不同，因此内核不能使用普通指令从用户提供的地址加载或存储。
+// 相反，内核必须使用copyin和copyout函数来复制数据。
 
 static uint64
 argraw(int n)

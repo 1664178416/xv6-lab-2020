@@ -26,9 +26,11 @@ uservec:
         
 	# swap a0 and sscratch
         # so that a0 is TRAPFRAME
+        # 交换a0和sscratch寄存器的值,此时a0指向TRAPFRAME的地址,sscratch保存a0的值
         csrrw a0, sscratch, a0
 
         # save the user registers in TRAPFRAME
+        # 保存通用寄存器到TRAPFRAME
         sd ra, 40(a0)
         sd sp, 48(a0)
         sd gp, 56(a0)
@@ -61,19 +63,25 @@ uservec:
         sd t6, 280(a0)
 
 	# save the user a0 in p->trapframe->a0
+	# 将sscratch保存的a0寄存器的值读取到t0中,然后把原本a0的值也保存进trapframe中
         csrr t0, sscratch
         sd t0, 112(a0)
 
         # restore kernel stack pointer from p->trapframe->kernel_sp
+        # 有关当前进程在内核态中寄存器的值是在usertrapret中被设置的
+        # 将kernel_satp的值设置到sp寄存器中,也就是sp指向当前进程内核栈的地址
         ld sp, 8(a0)
 
         # make tp hold the current hartid, from p->trapframe->kernel_hartid
+        # 恢复tp寄存器的值,保存当前hart id 
         ld tp, 32(a0)
 
         # load the address of usertrap(), p->trapframe->kernel_trap
+        # 使用t0寄存器暂存usertrap函数地址
         ld t0, 16(a0)
 
         # restore kernel page table from p->trapframe->kernel_satp
+        # satp指向内核页表,并刷新TLB
         ld t1, 0(a0)
         csrw satp, t1
         sfence.vma zero, zero
@@ -82,6 +90,7 @@ uservec:
         # table does not specially map p->tf.
 
         # jump to usertrap(), which does not return
+        // 跳转到Usertrap地址处继续执行
         jr t0
 
 .globl userret

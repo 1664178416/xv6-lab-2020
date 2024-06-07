@@ -536,6 +536,7 @@ copyin(pagetable_t pagetable, char *dst, uint64 srcva, uint64 len)
 // Copy bytes to dst from virtual address srcva in a given page table,
 // until a '\0', or max.
 // Return 0 on success, -1 on error.
+//copyinstr（kernel/vm.c:406）从用户页表中的虚拟地址srcva复制max字节到dst。
 int //更改后其实第一个用户页表就没用到了
 copyinstr(pagetable_t pagetable, char *dst, uint64 srcva, uint64 max)
 {
