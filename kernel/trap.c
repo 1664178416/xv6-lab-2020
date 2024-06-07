@@ -65,9 +65,14 @@ usertrap(void)
     intr_on();
 
     syscall();
+  } else if(r_scause() == 15){  //不用像lazy一样读写都考虑，只需要考虑写
+    if(walkcowaddr(p->pagetable, r_stval()) == 0){  //r_stval()是发生异常的地址
+      goto bad;
+    }
   } else if((which_dev = devintr()) != 0){
     // ok
   } else {
+bad:
     printf("usertrap(): unexpected scause %p pid=%d\n", r_scause(), p->pid);
     printf("            sepc=%p stval=%p\n", r_sepc(), r_stval());
     p->killed = 1;

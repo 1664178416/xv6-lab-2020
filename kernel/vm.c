@@ -68,46 +68,129 @@ kvminithart()
 //   21..29 -- 9 bits of level-1 index.
 //   12..20 -- 9 bits of level-0 index.
 //    0..11 -- 12 bits of byte offset within the page.
+/**
+ * walk函数用于在多级页表中查找给定虚拟地址对应的页表项。
+ * 如果alloc参数为真，且在查找过程中发现所需的页表页不存在，则会分配新的页表页。
+ *
+ * @param pagetable 当前的页表，用于开始查找。
+ * @param va 要查找的虚拟地址。
+ * @param alloc 是否允许分配新的页表页。
+ * @return 返回指向找到的页表项的指针。如果无法找到或分配新的页表页，则返回NULL。
+ */
 pte_t *
-walk(pagetable_t pagetable, uint64 va, int alloc)
+walk(pagetable_t pagetable, uint64 va, int alloc)  //walk() 函数用于在页表中查找虚拟地址 va 对应的页表项. 如果 alloc 为 1, 则在查找过程中如果需要分配页表页则进行分配.
 {
+  // 检查虚拟地址是否超出最大范围，如果是则触发panic。
   if(va >= MAXVA)
     panic("walk");
 
+  // 从二级页表开始，逐级向下查找页表项。
   for(int level = 2; level > 0; level--) {
+    // 根据当前虚拟地址和页表级别计算页表项的索引。
     pte_t *pte = &pagetable[PX(level, va)];
+
+    // 如果当前页表项有效，则更新pagetable为下一级页表的物理地址。
     if(*pte & PTE_V) {
       pagetable = (pagetable_t)PTE2PA(*pte);
     } else {
+      // 如果当前页表项无效，且不允许分配新页表或分配失败，则返回NULL。
       if(!alloc || (pagetable = (pde_t*)kalloc()) == 0)
         return 0;
+
+      // 初始化新分配的页表页。
       memset(pagetable, 0, PGSIZE);
+
+      // 设置新页表项，使其有效并指向新分配的页表页。
       *pte = PA2PTE(pagetable) | PTE_V;
     }
   }
+  // 返回最终找到的页表项的指针。
   return &pagetable[PX(0, va)];
 }
 
 // Look up a virtual address, return the physical address,
 // or 0 if not mapped.
 // Can only be used to look up user pages.
+/**
+ * 根据虚拟地址获取物理地址
+ * 
+ * @param pagetable 页表指针，用于映射虚拟地址到物理地址
+ * @param va 虚拟地址，需要转换成物理地址
+ * @return 返回对应的物理地址，如果虚拟地址无效或不受访问权限，则返回0
+ * 
+ * 该函数首先检查虚拟地址是否超过系统定义的最大虚拟地址范围。
+ * 如果超过，则直接返回0。接着，它通过页表和虚拟地址查找相应的页表项。
+ * 如果页表项不存在，则返回0。如果页表项存在，但标记为无效（未被映射），则也返回0。
+ * 同样，如果页表项存在但标记为不可用户访问，则再次返回0。
+ * 最后，如果所有的检查都通过，它将页表项转换为物理地址并返回这个物理地址。
+ */
 uint64
 walkaddr(pagetable_t pagetable, uint64 va)
 {
   pte_t *pte;
   uint64 pa;
 
+  // 检查虚拟地址是否超过最大虚拟地址范围
   if(va >= MAXVA)
     return 0;
 
+  // 通过页表和虚拟地址查找页表项
   pte = walk(pagetable, va, 0);
+  // 如果页表项不存在，返回0
   if(pte == 0)
     return 0;
+  // 如果页表项无效，返回0
   if((*pte & PTE_V) == 0)
     return 0;
+  // 如果页表项不可用户访问，返回0
   if((*pte & PTE_U) == 0)
     return 0;
+  // 将页表项转换为物理地址
   pa = PTE2PA(*pte);
+  return pa;
+}
+
+//增加walkcowaddr()函数，用于查找虚拟地址对应的页表项，如果页表项不存在则分配新的页表页。
+uint64 walkcowaddr(pagetable_t pagetable, uint64 va) {
+  pte_t *pte;
+  uint64 pa;
+  char* mem;
+  uint flags;
+
+  if (va >= MAXVA)
+    return 0;
+
+  pte = walk(pagetable, va, 0);
+  if (pte == 0)
+      return 0;
+  if ((*pte & PTE_V) == 0)
+      return 0;
+  if ((*pte & PTE_U) == 0)
+    return 0;
+  pa = PTE2PA(*pte);
+  // 判断写标志位是否没有
+  if ((*pte & PTE_W) == 0) {
+    // pte without COW flag cannot allocate page 
+    if ((*pte & PTE_COW) == 0) {
+        return 0;
+    }
+    // 分配新物理页
+    if ((mem = kalloc()) == 0) {
+      return 0;
+    }
+    // 拷贝页表内容
+    memmove(mem, (void*)pa, PGSIZE);
+    // 更新标志位
+    flags = (PTE_FLAGS(*pte) & (~PTE_COW)) | PTE_W;
+    // 取消原映射
+    uvmunmap(pagetable, PGROUNDDOWN(va), 1, 1);
+    // 更新新映射
+    if (mappages(pagetable, PGROUNDDOWN(va), PGSIZE, (uint64)mem, flags) != 0) {
+      kfree(mem);
+      return 0;
+    }
+    return (uint64)mem;    // COW情况下返回新物理地址
+  }
   return pa;
 }
 
@@ -305,13 +388,16 @@ uvmfree(pagetable_t pagetable, uint64 sz)
 // physical memory.
 // returns 0 on success, -1 on failure.
 // frees any allocated pages on failure.
+//uvmcopy() 函数用于在 fork() 时子进程拷贝父进程的用户页表. 而 COW 实际上影响的就是该部分, 并非实际拷贝, 而是将子进程虚拟页同样映射在与父进程相同的物理页上. 因此对于该函数主要修改之处就是将原本的 kalloc() 分配去掉.
+//此外, 由于是写时复制（Copy on Write）, 因此需要对父进程和子进程该物理页对应的虚拟页 PTE 的标志位进行处理, 移除原本的写标志位 PTE_W, 并添加 COW 标志位 PTE_COW.
+//在最后需要调用 increfcnt() 对当前物理页的引用计数加 1.
 int
 uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
 {
   pte_t *pte;
   uint64 pa, i;
   uint flags;
-  char *mem;
+  //char *mem; //写时分配，故此时不需要分配和映射
 
   for(i = 0; i < sz; i += PGSIZE){
     if((pte = walk(old, i, 0)) == 0)
@@ -319,15 +405,22 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
     if((*pte & PTE_V) == 0)
       panic("uvmcopy: page not present");
     pa = PTE2PA(*pte);
-    flags = PTE_FLAGS(*pte);
-    if((mem = kalloc()) == 0)
+    //把写关闭并把写时复制打开，那么当任意进程尝试写入这些共享页表时由于页表项已经变成只读，那么硬件会触发一个页面保护违规异常，并且要对其这个共享页面进行一次复制到新的物理页上，并将其标志为可写，然后再进行写操作。
+    flags = (PTE_FLAGS(*pte) & (~PTE_W)) | PTE_COW;
+    *pte = PA2PTE(pa) | flags;
+    //因为要写时分配，那么此时就不能写
+    // if((mem = kalloc()) == 0)
+    //   goto err;
+    // memmove(mem, (char*)pa, PGSIZE);
+    // if(mappages(new, i, PGSIZE, (uint64)mem, flags) != 0){
+    //   kfree(mem);
+    //   goto err;
+    // }
+    if(mappages(new,i,PGSIZE,pa,flags) != 0) //用之前的物理页进行映射，即共享
       goto err;
-    memmove(mem, (char*)pa, PGSIZE);
-    if(mappages(new, i, PGSIZE, (uint64)mem, flags) != 0){
-      kfree(mem);
-      goto err;
-    }
+    increfcnt(pa);  //引用数加一
   }
+  
   return 0;
 
  err:
@@ -358,7 +451,7 @@ copyout(pagetable_t pagetable, uint64 dstva, char *src, uint64 len)
 
   while(len > 0){
     va0 = PGROUNDDOWN(dstva);
-    pa0 = walkaddr(pagetable, va0);
+    pa0 = walkcowaddr(pagetable, va0);
     if(pa0 == 0)
       return -1;
     n = PGSIZE - (dstva - va0);
