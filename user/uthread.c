@@ -10,15 +10,34 @@
 #define STACK_SIZE  8192
 #define MAX_THREAD  4
 
+struct ctx {
+  uint64 ra; // return address
+  uint64 sp; // stack pointer
+
+  // callee-saved
+  uint64 s0;
+  uint64 s1;
+  uint64 s2;
+  uint64 s3;
+  uint64 s4;
+  uint64 s5;
+  uint64 s6;
+  uint64 s7;
+  uint64 s8;
+  uint64 s9;
+  uint64 s10;
+  uint64 s11;
+};
 
 struct thread {
-  char       stack[STACK_SIZE]; /* the thread's stack */
+  char       stack[STACK_SIZE]; /* the thread's stack */ //栈，用于存储局部变量、函数参数、返回地址等信息的内存区域，此处stack为栈底指针
   int        state;             /* FREE, RUNNING, RUNNABLE */
-
+  struct ctx context;           //上下文字段 context
 };
 struct thread all_thread[MAX_THREAD];
 struct thread *current_thread;
-extern void thread_switch(uint64, uint64);
+//extern void thread_switch(uint64, uint64);//原版使用uint64，不过换成struct ctx*更好
+extern void thread_switch(struct ctx*, struct ctx*);
               
 void 
 thread_init(void)
@@ -63,6 +82,10 @@ thread_schedule(void)
      * Invoke thread_switch to switch from t to next_thread:
      * thread_switch(??, ??);
      */
+    //切换到当前线程执行
+    //thread_switch((uint64)&t->context, (uint64)&current_thread->context);   
+    thread_switch(&t->context, &current_thread->context);
+    // switch thread - lab7-1
   } else
     next_thread = 0;
 }
@@ -77,6 +100,9 @@ thread_create(void (*func)())
   }
   t->state = RUNNABLE;
   // YOUR CODE HERE
+  // 设置返回函数地址和栈顶指针
+  t->context.ra = (uint64) func;
+  t->context.sp = (uint64)t->stack + (STACK_SIZE - 1); //指到栈顶
 }
 
 void 

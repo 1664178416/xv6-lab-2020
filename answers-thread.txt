@@ -1,0 +1,6 @@
+Q: Why are there missing keys with 2 threads, but not with 1 thread? Identify a sequence of events with 2 threads that can lead to a key being missing. Submit your sequence with a short explanation in answers-thread.txt
+
+A:这里的哈希表就是“数组（bucket）+链表”的实现方式，通过取余后确定bucket，put()使用前插法插入键值对，get()遍历bucket下的链表找到对应key的entry；不过这里的实现没有涉及到任何锁等安全机制，因此线程不安全，多线程插入时会造成信息丢失。
+当多个线程调用put()对同一个bucket进行数据插入时，可能会使得先插入的entry丢失：
+假设A和B同时运行到put()的insert()处，还没有进入到函数内部，那么就会导致两个线程insert()到同一个bucket，如若A调用完entry()后，切换到B再调用insert()插入entry，就会导致刚才A插入的entry丢失
+处理办法也就是得对上述过程进行加锁。

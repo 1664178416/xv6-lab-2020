@@ -1,7 +1,7 @@
 // Saved registers for kernel context switches.
 struct context {
-  uint64 ra;
-  uint64 sp;
+  uint64 ra;   // 保存了函数返回需要跳转回去的地址，即地址寄存器
+  uint64 sp;   // 栈指针，指向当前的栈顶位置栈是用来存储局部变量、函数参数、返回地址等信息的内存区域，而栈指针则用于追踪栈的当前位置。
 
   // callee-saved
   uint64 s0;

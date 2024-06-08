@@ -8,6 +8,8 @@
 #define NBUCKET 5
 #define NKEYS 100000
 
+pthread_mutex_t locks[NBUCKET];
+
 struct entry {
   int key;
   int value;
@@ -51,9 +53,13 @@ void put(int key, int value)
     e->value = value;
   } else {
     // the new is new.
+    pthread_mutex_lock(&locks[i]);
     insert(key, value, &table[i], table[i]);
+    pthread_mutex_unlock(&locks[i]);
   }
 }
+
+//get不用枷锁，因为不会进行修改
 
 static struct entry*
 get(int key)
@@ -113,6 +119,10 @@ main(int argc, char *argv[])
   assert(NKEYS % nthread == 0);
   for (int i = 0; i < NKEYS; i++) {
     keys[i] = random();
+  }
+  //对锁初始化
+  for(int i = 0; i < NBUCKET; i++){
+    pthread_mutex_init(&locks[i],NULL);
   }
 
   //
