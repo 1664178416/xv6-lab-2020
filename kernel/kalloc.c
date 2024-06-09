@@ -96,6 +96,7 @@ kalloc(void)
   release(&kmem.lock);
 
   if(r)
+    // 使用垃圾数据填充内存以避免悬挂指针问题
     memset((char*)r, 5, PGSIZE); // fill with junk
   return (void*)r;
 }
