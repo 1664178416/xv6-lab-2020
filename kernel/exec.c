@@ -122,6 +122,7 @@ exec(char *path, char **argv)
     if(sp < stackbase)
       goto bad;
     // 参数入栈  copyout完成数据从内核态到用户态的拷贝
+    //sp栈顶，第一个为页表地址，第二个为用户栈空间栈顶地址，然后用walkaddr和第一个参数找到对应的物理地址，第三个为内核里面要拷贝到用户的数据，配合前面for循环从0拷贝到argc大小的数据，strlen(argv[argc]) + 1是因为字符串末尾有个\0，用来判断结束
     if(copyout(pagetable, sp, argv[argc], strlen(argv[argc]) + 1) < 0)
       goto bad;
     // ustack记录每个参数对应的栈中位置    
