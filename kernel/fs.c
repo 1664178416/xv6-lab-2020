@@ -401,6 +401,31 @@ bmap(struct inode *ip, uint bn)
     return addr;
   }
 
+  // doubly-indirect-block -lab9-1
+  bn -= NINDIRECT;  // 128, 129, 130, ...
+  if(bn < NDOUBLYINDIRECT) { //
+    if((addr = ip->addrs[NDIRECT + 1]) == 0){
+      ip->addrs[NDIRECT + 1] = addr = balloc(ip->dev);
+    }
+    bp = bread(ip->dev,addr);
+    a = (uint*)bp->data;
+    if((addr = a[bn / NINDIRECT]) == 0){
+      a[bn / NINDIRECT] = addr = balloc(ip->dev);
+      log_write(bp);
+    }
+    brelse(bp);
+    bp = bread(ip->dev,addr);
+    a = (uint*)bp->data;
+    bn %= NINDIRECT;
+    //得到直接的块
+    if((addr = a[bn]) == 0){
+      a[bn] = addr = balloc(ip->dev);
+      log_write(bp);
+    }
+    brelse(bp);
+    return addr;
+  }
+
   panic("bmap: out of range");
 }
 
