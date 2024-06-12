@@ -374,70 +374,100 @@ iunlockput(struct inode *ip)
 
 // Return the disk block address of the nth block in inode ip.
 // If there is no such block, bmap allocates one.
+// bmap函数根据给定的inode和块号bn，返回对应的数据块地址。
+// 如果该数据块不存在，则分配一个新的数据块，并更新inode。
+// 参数:
+//   ip: 指向inode的指针。
+//   bn: 数据块号。
+// 返回值:
+//   数据块的物理地址。
 static uint
 bmap(struct inode *ip, uint bn)
 {
   uint addr, *a;
   struct buf *bp;
 
+  // 如果块号bn小于直接块的数量，处理直接块。
   if(bn < NDIRECT){
+    // 如果该直接块尚未分配，则分配一个新的块，并更新inode。
     if((addr = ip->addrs[bn]) == 0)
       ip->addrs[bn] = addr = balloc(ip->dev);
     return addr;
   }
+  // 减去直接块的数量，准备处理间接块。
   bn -= NDIRECT;
 
+  // 如果bn小于间接块的数量，处理单级间接块。
   if(bn < NINDIRECT){
+    // 如果单级间接块尚未分配，则分配一个新的块，并更新inode。
     // Load indirect block, allocating if necessary.
     if((addr = ip->addrs[NDIRECT]) == 0)
       ip->addrs[NDIRECT] = addr = balloc(ip->dev);
+    // 读取单级间接块。
     bp = bread(ip->dev, addr);
     a = (uint*)bp->data;
+    // 如果对应的间接块尚未分配，则分配一个新的块，并更新单级间接块。
     if((addr = a[bn]) == 0){
       a[bn] = addr = balloc(ip->dev);
       log_write(bp);
     }
+    // 释放单级间接块的缓冲区。
     brelse(bp);
     return addr;
   }
 
-  // doubly-indirect-block -lab9-1
+  // 减去间接块的数量，准备处理双级间接块。
   bn -= NINDIRECT;  // 128, 129, 130, ...
-  if(bn < NDOUBLYINDIRECT) { //
+  // 如果bn小于双级间接块的数量，处理双级间接块。
+  if(bn < NDOUBLYINDIRECT) {
+    // 如果双级间接块尚未分配，则分配一个新的块，并更新inode。
     if((addr = ip->addrs[NDIRECT + 1]) == 0){
       ip->addrs[NDIRECT + 1] = addr = balloc(ip->dev);
     }
+    // 读取双级间接块的第一级。
     bp = bread(ip->dev,addr);
     a = (uint*)bp->data;
+    // 如果对应的一级间接块尚未分配，则分配一个新的块，并更新双级间接块的一级。
     if((addr = a[bn / NINDIRECT]) == 0){
       a[bn / NINDIRECT] = addr = balloc(ip->dev);
       log_write(bp);
     }
+    // 释放双级间接块的第一级缓冲区。
     brelse(bp);
+    // 读取双级间接块的二级。
     bp = bread(ip->dev,addr);
     a = (uint*)bp->data;
+    // 取余以得到正确的二级间接块索引。
     bn %= NINDIRECT;
-    //得到直接的块
+    // 如果对应的二级间接块尚未分配，则分配一个新的块，并更新双级间接块的二级。
+    // 得到直接的块
     if((addr = a[bn]) == 0){
       a[bn] = addr = balloc(ip->dev);
       log_write(bp);
     }
+    // 释放双级间接块的二级缓冲区。
     brelse(bp);
     return addr;
   }
 
+  // 如果bn超出所有间接块的数量范围，则表示块号无效，触发panic。
   panic("bmap: out of range");
 }
 
 // Truncate inode (discard contents).
 // Caller must hold ip->lock.
+// itrunc函数用于清空一个inode指向的数据块，即从文件系统中删除该文件的所有数据。
+// 它遍历并释放inode的所有直接块、间接块和双间接块。
+// 参数:
+//   ip: 指向要操作的inode的指针。
 void
 itrunc(struct inode *ip)
 {
-  int i, j;
-  struct buf *bp;
-  uint *a;
+  int i, j, k;
+  struct buf *bp,*bp2;
+  uint *a, *a2;
 
+  // 遍历并释放所有直接块
   for(i = 0; i < NDIRECT; i++){
     if(ip->addrs[i]){
       bfree(ip->dev, ip->addrs[i]);
@@ -445,6 +475,7 @@ itrunc(struct inode *ip)
     }
   }
 
+  // 如果存在间接块，释放间接块及其指向的所有数据块
   if(ip->addrs[NDIRECT]){
     bp = bread(ip->dev, ip->addrs[NDIRECT]);
     a = (uint*)bp->data;
@@ -457,6 +488,31 @@ itrunc(struct inode *ip)
     ip->addrs[NDIRECT] = 0;
   }
 
+  // 如果存在双间接块，释放双间接块及其指向的所有间接块和数据块
+  //释放双重间接块
+  if(ip->addrs[NDIRECT + 1]){
+    bp = bread(ip->dev,ip->addrs[NDIRECT + 1]);
+    a = (uint*)bp->data;
+    for(j = 0; j < NINDIRECT; j++){
+      if(a[j]){
+        bp2 = bread(ip->dev,a[j]);
+        a2 = (uint*)bp2->data;
+        for(k = 0; k < NINDIRECT; k++){
+          if(a2[k]){
+            bfree(ip->dev,a2[k]);
+          }
+        }
+        brelse(bp2);
+        bfree(ip->dev,a[j]);
+        a[j] = 0;
+      }
+    }
+    brelse(bp);
+    bfree(ip->dev,ip->addrs[NDIRECT + 1]);
+    ip->addrs[NDIRECT+1] = 0;
+  }
+
+  // 将inode的大小设置为0，并更新inode信息
   ip->size = 0;
   iupdate(ip);
 }
@@ -508,36 +564,53 @@ readi(struct inode *ip, int user_dst, uint64 dst, uint off, uint n)
 // Returns the number of bytes successfully written.
 // If the return value is less than the requested n,
 // there was an error of some kind.
+// 写入函数，用于向指定inode的文件中写入数据。
+// 参数：
+//   ip：指向待写入文件inode结构的指针。
+//   user_src：标志，表示源数据是否来自用户空间。
+//   src：源数据的地址。
+//   off：文件中开始写入的偏移量。
+//   n：要写入的字节数。
+// 返回值：
+//   成功写入的总字节数，如发生错误则返回-1。
 int
 writei(struct inode *ip, int user_src, uint64 src, uint off, uint n)
 {
-  uint tot, m;
-  struct buf *bp;
+  uint tot, m;           // 分别记录已写入的总字节数和当前块内写入的字节数
+  struct buf *bp;        // 指向缓冲区的指针，用于读写磁盘块
 
+  // 检查写入偏移是否超过文件当前大小，或写入长度加上偏移是否导致整数溢出，
+  // 遇到任一情况则返回-1表示错误。
   if(off > ip->size || off + n < off)
     return -1;
+  // 检查写入操作是否超出系统支持的最大文件大小，超出则返回-1。
   if(off + n > MAXFILE*BSIZE)
     return -1;
 
+  // 循环遍历文件的各个块，分段写入数据。
   for(tot=0; tot<n; tot+=m, off+=m, src+=m){
+    // 根据当前写入位置读取对应磁盘块至缓冲区。
     bp = bread(ip->dev, bmap(ip, off/BSIZE));
+    // 计算当前块内应写入的字节数。
     m = min(n - tot, BSIZE - off%BSIZE);
+    // 尝试从源地址复制数据到缓冲区，失败则释放缓冲区并跳出循环。
     if(either_copyin(bp->data + (off % BSIZE), user_src, src, m) == -1) {
       brelse(bp);
       break;
     }
+    // 记录修改的块到日志，并释放缓冲区。
     log_write(bp);
     brelse(bp);
   }
 
+  // 若写入位置超过当前文件大小，则更新文件大小。
   if(off > ip->size)
     ip->size = off;
 
-  // write the i-node back to disk even if the size didn't change
-  // because the loop above might have called bmap() and added a new
-  // block to ip->addrs[].
+  // 即使文件大小未变，也需将inode回写到磁盘，因为上面的循环可能调用了bmap并给ip->addrs[]新增了块。
   iupdate(ip);
 
+  // 返回实际成功写入的总字节数。
   return tot;
 }
 

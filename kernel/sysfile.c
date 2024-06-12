@@ -116,47 +116,66 @@ sys_fstat(void)
 }
 
 // Create the path new as a link to the same inode as old.
-uint64
-sys_link(void)
-{
+//xv6硬链接实现方式
+uint64 sys_link(void) {
   char name[DIRSIZ], new[MAXPATH], old[MAXPATH];
   struct inode *dp, *ip;
 
+  // 从用户态获取参数 old 和 new，分别表示旧路径和新路径
   if(argstr(0, old, MAXPATH) < 0 || argstr(1, new, MAXPATH) < 0)
     return -1;
 
+  // 开始文件系统操作事务
   begin_op();
+
+  // 根据旧路径名找到 inode
   if((ip = namei(old)) == 0){
     end_op();
     return -1;
   }
 
+  // 对 inode 进行加锁
   ilock(ip);
+
+  // 检查旧路径对应的 inode 是否为目录，如果是目录则不能创建硬链接
   if(ip->type == T_DIR){
-    iunlockput(ip);
+    iunlockput(ip); // 解锁 inode 并释放引用
     end_op();
     return -1;
   }
 
+  // 增加 inode 的链接数，因为即将创建一个新的硬链接指向该 inode
   ip->nlink++;
-  iupdate(ip);
-  iunlock(ip);
+  iupdate(ip); // 更新 inode 的磁盘信息
+  iunlock(ip); // 解锁 inode
 
+  // 解析新路径中的目录名和文件名
   if((dp = nameiparent(new, name)) == 0)
     goto bad;
+
+  // 对目录的 inode 进行加锁
   ilock(dp);
+
+  // 检查新路径所在的目录的设备号与旧路径所在的设备号是否相同
+  // 如果不相同，或者在新路径所在的目录中无法创建新的目录项，说明创建硬链接失败
   if(dp->dev != ip->dev || dirlink(dp, name, ip->inum) < 0){
-    iunlockput(dp);
+    iunlockput(dp); // 解锁目录的 inode 并释放引用
     goto bad;
   }
+
+  // 解锁目录的 inode 并释放引用
   iunlockput(dp);
+
+  // 释放旧路径对应的 inode 的引用
   iput(ip);
 
+  // 结束文件系统操作事务
   end_op();
 
   return 0;
 
 bad:
+  // 创建硬链接失败时，需要回滚之前对旧路径 inode 的修改，即减少链接数
   ilock(ip);
   ip->nlink--;
   iupdate(ip);
@@ -164,6 +183,7 @@ bad:
   end_op();
   return -1;
 }
+
 
 // Is the directory dp empty except for "." and ".." ?
 static int
@@ -181,58 +201,72 @@ isdirempty(struct inode *dp)
   return 1;
 }
 
-uint64
-sys_unlink(void)
-{
+uint64 sys_unlink(void) {
   struct inode *ip, *dp;
   struct dirent de;
   char name[DIRSIZ], path[MAXPATH];
   uint off;
 
+  // 从用户态获取参数 path，表示要删除的文件路径
   if(argstr(0, path, MAXPATH) < 0)
     return -1;
 
+  // 开始文件系统操作事务
   begin_op();
+
+  // 根据提供的路径，找到文件的父目录
   if((dp = nameiparent(path, name)) == 0){
     end_op();
     return -1;
   }
 
+  // 对父目录的 inode 进行加锁
   ilock(dp);
 
-  // Cannot unlink "." or "..".
+  // 不能删除 "." 或 ".." 目录项
   if(namecmp(name, ".") == 0 || namecmp(name, "..") == 0)
     goto bad;
 
+  // 根据文件名在父目录中查找对应的目录项
   if((ip = dirlookup(dp, name, &off)) == 0)
     goto bad;
+
+  // 对文件的 inode 进行加锁
   ilock(ip);
 
   if(ip->nlink < 1)
     panic("unlink: nlink < 1");
+
+  // 如果要删除的是目录，需要确保目录为空
   if(ip->type == T_DIR && !isdirempty(ip)){
-    iunlockput(ip);
+    iunlockput(ip); // 解锁 inode 并释放引用
     goto bad;
   }
 
+  // 清空目录项，并写回父目录
   memset(&de, 0, sizeof(de));
   if(writei(dp, 0, (uint64)&de, off, sizeof(de)) != sizeof(de))
     panic("unlink: writei");
+
+  // 如果删除的是目录，需要更新父目录的链接数
   if(ip->type == T_DIR){
     dp->nlink--;
     iupdate(dp);
   }
-  iunlockput(dp);
+  iunlockput(dp); // 解锁父目录并释放引用
 
+  // 更新文件的链接数，并解锁文件的 inode 并释放引用
   ip->nlink--;
   iupdate(ip);
   iunlockput(ip);
 
+  // 结束文件系统操作事务
   end_op();
 
   return 0;
 
 bad:
+  // 删除操作失败时，需要解锁父目录并释放引用，并结束文件系统操作事务
   iunlockput(dp);
   end_op();
   return -1;
@@ -283,45 +317,84 @@ create(char *path, short type, short major, short minor)
   return ip;
 }
 
+/* 系统调用open的实现 */
 uint64
 sys_open(void)
 {
+  /* 路径名缓冲区 */
   char path[MAXPATH];
+  /* 文件描述符和打开模式 */
   int fd, omode;
+  /* 文件结构指针 */
   struct file *f;
+  /* i节点指针 */
   struct inode *ip;
+  /* 临时变量，用于存储函数调用返回值 */
   int n;
 
+  /* 获取路径名和打开模式，如果出错则返回-1 */
   if((n = argstr(0, path, MAXPATH)) < 0 || argint(1, &omode) < 0)
     return -1;
 
+  /* 开始一个文件操作 */
   begin_op();
 
+  /* 如果需要创建文件 */
   if(omode & O_CREATE){
+    /* 调用create函数创建文件，如果失败则返回-1 */
     ip = create(path, T_FILE, 0, 0);
     if(ip == 0){
       end_op();
       return -1;
     }
   } else {
-    if((ip = namei(path)) == 0){
-      end_op();
-      return -1;
+    int symlink_depth = 0;
+    /* 查找已存在的文件，如果失败则返回-1 */
+    while(1){
+      if((ip = namei(path)) == 0){
+        end_op();
+        return -1;
+      }
+      /* 加锁i节点 */
+      ilock(ip);
+
+      if(ip->type == T_SYMLINK && (omode & O_NOFOLLOW) == 0){
+        //在跟踪符号链接时需要额外考虑到符号链接的目标可能还是符号链接, 此时需要递归的去跟踪目标链接直至得到真正的文件. 而这其中需要解决两个问题: 一是符号链接可能成环, 这样会一直递归地跟踪下去, 因此需要进行成环的检测; 另一方面是需要对链接的深度进行限制, 以减轻系统负担,这里把最大深度设成10
+        if(++symlink_depth > 10){
+          // too many layer of symlinks, might be a loop
+          iunlockput(ip);
+          end_op();
+          return -1;
+        }
+        if(readi(ip, 0, (uint64)path, 0, MAXPATH) < 0){
+          iunlockput(ip);
+          end_op();
+          return -1;
+        }
+        iunlockput(ip);
+        
+      }else{
+        break;
+      }
     }
-    ilock(ip);
+
+    /* 如果是目录文件且不是只读打开，返回-1 */
     if(ip->type == T_DIR && omode != O_RDONLY){
+      // // 如果是目录，并且打开模式不是 O_RDONLY（只读），则不能打开
       iunlockput(ip);
       end_op();
       return -1;
     }
   }
 
+  /* 如果是设备文件，检查设备号是否有效，否则返回-1 */
   if(ip->type == T_DEVICE && (ip->major < 0 || ip->major >= NDEV)){
     iunlockput(ip);
     end_op();
     return -1;
   }
 
+  /* 分配文件结构，如果失败则返回-1 */
   if((f = filealloc()) == 0 || (fd = fdalloc(f)) < 0){
     if(f)
       fileclose(f);
@@ -330,6 +403,16 @@ sys_open(void)
     return -1;
   }
 
+  // //处理符号链接，即软连接,如果
+  // if(ip->type == T_SYMLINK && !(omode & O_NOFOLLOW)){ //如果不是不可追踪
+  //   //若符号链接指向的仍旧是符号链接，则递归跟随它，直到找到真正的指向文件
+  //   //深度不能超过MAX_SYMLINK_DEPTH
+  //   for(int i = 0; i < MAX_SYMLINK_DEPTH; i++){
+  //     //读出符号链接指的路径
+  //   }
+  // }
+
+  /* 根据文件类型设置文件结构的类型和主要设备号 */
   if(ip->type == T_DEVICE){
     f->type = FD_DEVICE;
     f->major = ip->major;
@@ -337,17 +420,22 @@ sys_open(void)
     f->type = FD_INODE;
     f->off = 0;
   }
+  /* 设置文件结构的i节点指针和读写权限 */
   f->ip = ip;
   f->readable = !(omode & O_WRONLY);
   f->writable = (omode & O_WRONLY) || (omode & O_RDWR);
 
+  /* 如果要求截断文件，且文件类型是普通文件，则截断文件 */
   if((omode & O_TRUNC) && ip->type == T_FILE){
     itrunc(ip);
   }
 
+  /* 解锁i节点 */
   iunlock(ip);
+  /* 结束文件操作 */
   end_op();
 
+  /* 返回文件描述符 */
   return fd;
 }
 
@@ -483,4 +571,35 @@ sys_pipe(void)
     return -1;
   }
   return 0;
+}
+
+//实现符号软链接
+uint64 sys_symlink(void){
+  char target[MAXPATH],path[MAXPATH];
+  struct  inode *ip_path;
+  //从用户态拿到参数target，path，分别表示软连接的目标路径和要软连接的路径
+  if(argstr(0, target, MAXPATH) < 0 || argstr(1, path, MAXPATH) < 0){
+    return -1;
+  } 
+  //开始文件系统操作食物
+  begin_op();
+  //创建一个新的inode，类型为T_SYSLINK，表示软链接
+  //create函数返回锁定的inode
+  ip_path = create(path,T_SYMLINK,0,0);
+  if(ip_path == 0){
+    end_op();
+    return -1;
+  }
+
+  //向inode数据块写入目标路径（target），把target写到ip_path中，即将软链接的目标路径写入inode的数据块
+  if(writei(ip_path,0,(uint64)target,0,MAXPATH) < MAXPATH){
+    iunlockput(ip_path); //解锁inode并释放引用
+    end_op(); //结束文件系统操作事务
+    return -1;
+  }
+
+  iunlockput(ip_path);//解锁inode并释放引用
+  end_op();
+  return 0;
+
 }

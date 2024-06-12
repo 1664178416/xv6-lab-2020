@@ -74,12 +74,26 @@ argaddr(int n, uint64 *ip)
 // Fetch the nth word-sized system call argument as a null-terminated string.
 // Copies into buf, at most max.
 // Returns string length if OK (including nul), -1 if error.
+/**
+ * 从程序的参数中获取字符串
+ * 
+ * 该函数旨在从程序的参数中提取第n个参数的字符串值。它首先尝试获取该参数的地址，
+ * 然后从该地址提取字符串。如果操作成功，字符串将被存储在提供的缓冲区中。
+ * 
+ * @param n 指定要提取的参数的索引，索引从0开始。
+ * @param buf 用于存储提取的字符串的缓冲区。
+ * @param max 缓冲区的最大长度，用于防止缓冲区溢出。
+ * @return 如果成功提取字符串，则返回0；如果出现错误，则返回-1。
+ */
 int
 argstr(int n, char *buf, int max)
 {
   uint64 addr;
+  /* 尝试获取第n个参数的地址 */
   if(argaddr(n, &addr) < 0)
+    /* 如果获取地址失败，则返回错误 */
     return -1;
+  /* 从地址中提取字符串到缓冲区 */
   return fetchstr(addr, buf, max);
 }
 
@@ -104,6 +118,7 @@ extern uint64 sys_unlink(void);
 extern uint64 sys_wait(void);
 extern uint64 sys_write(void);
 extern uint64 sys_uptime(void);
+extern uint64 sys_symlink(void); // lab9-2
 
 static uint64 (*syscalls[])(void) = {
 [SYS_fork]    sys_fork,
@@ -127,6 +142,7 @@ static uint64 (*syscalls[])(void) = {
 [SYS_link]    sys_link,
 [SYS_mkdir]   sys_mkdir,
 [SYS_close]   sys_close,
+[SYS_symlink] sys_symlink, // lab9-2
 };
 
 void
